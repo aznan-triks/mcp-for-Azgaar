@@ -42,6 +42,7 @@ What you can ask Claude:
 
 - **Automatic window**: The browser window opens automatically the first time Claude needs it. Leave this window open while chatting.
 - **Collaborative editing**: You can watch Claude work in real time and still edit by hand using the map controls at any moment.
+- **Visible or hidden window**: by default the window is visible, so you watch the AI work live. To run it hidden ("headless", no window), set `"headless": true` in `config/fmg-mcp.json` or the environment variable `FMG_HEADLESS=1` in your AI program's settings. Hidden mode is handy for servers and automatic tests; the AI still sees the map through screenshots.
 - **Autosave**: Maps autosave every minute to the `maps` folder (`autosave.map`) and reload automatically at your next launch.
 - **Undo**: Claude can undo any change. If an edit does not suit you, simply say "Undo that" (Claude triggers `map_undo`).
 

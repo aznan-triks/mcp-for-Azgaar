@@ -42,6 +42,7 @@ Exemples de demandes possibles à Claude :
 
 - **Fenêtre automatique** : La fenêtre du navigateur s'ouvre toute seule la première fois que Claude en a besoin. Laissez cette fenêtre ouverte pendant votre échange avec Claude.
 - **Collaboration directe** : Vous pouvez regarder Claude travailler en direct et intervenir vous-même à la souris sur la carte à tout instant.
+- **Fenêtre visible ou cachée** : par défaut la fenêtre est visible, vous regardez donc l'IA travailler en direct. Pour la cacher (mode « headless », sans fenêtre), mettez `"headless": true` dans `config/fmg-mcp.json` ou la variable d'environnement `FMG_HEADLESS=1` dans les réglages de votre programme d'IA. Le mode caché sert aux serveurs et aux tests automatiques ; l'IA voit toujours la carte grâce aux captures.
 - **Sauvegarde automatique** : Les cartes sont enregistrées automatiquement chaque minute dans le dossier `maps` (`autosave.map`) et rechargées au lancement suivant.
 - **Annulation** : Chaque modification effectuée par Claude peut être annulée. Si le résultat ne vous convient pas, dites simplement « Annule ça » (Claude utilise `map_undo`).
 

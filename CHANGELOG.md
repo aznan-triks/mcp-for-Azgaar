@@ -2,6 +2,13 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.2.2
+
+**Plain words:** The README now explains that the map window is visible by default (you watch the AI work live) and how to hide it.
+
+**Technical:**
+- Documentation only: `browser.headless` (config) / `FMG_HEADLESS` (environment), default visible.
+
 ## 1.2.1
 
 **Plain words:** Fixes found by an independent test run: the Claude Code command now carries the text-only setting, the installer no longer prints a security warning, and the README says more about Node, Claude Desktop and a stuck browser window.
