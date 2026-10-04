@@ -19,7 +19,7 @@ async function setup(name: string) {
   cfg.browser.executablePath = process.env.FMG_TEST_CHROMIUM ?? null;
   cfg.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
   cfg.profileDir = join(work, `profile-${name}`);
-  cfg.map.seed = "trois";
+  cfg.map.seed = "333";
   const web = await startStaticServer(cfg.azgaarDist, "127.0.0.1", 0);
   const session = new MapSession(cfg, web.url);
   const autosave = new Autosave(join(work, `${name}.map`), session);

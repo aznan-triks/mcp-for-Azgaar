@@ -2,7 +2,7 @@
 
 # mcp-for-Azgaar
 
-mcp-for-Azgaar connecte votre assistant IA (Claude Desktop ou Claude Code) au générateur de cartes [Azgaar's Fantasy Map Generator](https://github.com/Azgaar/Fantasy-Map-Generator). C'est un serveur MCP : voyez MCP comme une prise qui permet à Claude d'utiliser d'autres logiciels. La carte s'affiche en direct dans une vraie fenêtre de navigateur (Google Chrome ou Microsoft Edge) sur votre ordinateur. Vous voyez Claude analyser la géographie, examiner les royaumes et tracer les frontières en temps réel, tout en pouvant continuer à modifier la carte à la main quand vous le souhaitez. Tout fonctionne à 100 % en local et hors ligne une fois installé : aucun compte, aucune clé d'API, et aucune donnée n'est envoyée sur Internet.
+mcp-for-Azgaar connecte votre assistant IA (Claude, Cline, Codex, Hermes, ou tout programme compatible MCP, avec tout modèle capable d'utiliser des outils) au générateur de cartes [Azgaar's Fantasy Map Generator](https://github.com/Azgaar/Fantasy-Map-Generator). C'est un serveur MCP : voyez MCP comme une prise qui permet à Claude d'utiliser d'autres logiciels. La carte s'affiche en direct dans une vraie fenêtre de navigateur (Google Chrome ou Microsoft Edge) sur votre ordinateur. Vous voyez Claude analyser la géographie, examiner les royaumes et tracer les frontières en temps réel, tout en pouvant continuer à modifier la carte à la main quand vous le souhaitez. Tout fonctionne à 100 % en local et hors ligne une fois installé : aucun compte, aucune clé d'API, et aucune donnée n'est envoyée sur Internet.
 
 Exemples de demandes possibles à Claude :
 - « Montre-moi la carte »
@@ -15,7 +15,7 @@ Exemples de demandes possibles à Claude :
 
 - Windows 10/11, macOS ou Linux.
 - Google Chrome ou Microsoft Edge.
-- Claude Desktop (application gratuite sur [claude.ai/download](https://claude.ai/download)) ou Claude Code.
+- Un programme d'IA compatible MCP : Claude Desktop (application gratuite sur [claude.ai/download](https://claude.ai/download)) est le plus simple, mais Claude Code, Cline, Codex, Hermes Agent, Cursor, LM Studio et d'autres fonctionnent aussi (voir « Autres programmes d'IA » plus bas).
 - Une connexion Internet pour l'installation uniquement.
 
 ## Installation
@@ -50,11 +50,20 @@ Mettez à jour le générateur d'un simple clic :
 - Pour essayer la version de développement la plus récente : `npm run update -- --edge`
 - Pour revenir à la version testée et validée : `npm run update -- --known-good`
 
-## Utilisateurs de Claude Code
+## Autres programmes d'IA (pas seulement Claude)
 
-- Lancez `npm run register` pour afficher la commande exacte à copier-coller :
-  `claude mcp add azgaar -- ...`
-- Lancez `npm run register -- --desktop` pour écrire automatiquement la configuration de Claude Desktop (avec sauvegarde préalable).
+C'est un serveur MCP standard : il fonctionne avec tout programme d'IA compatible MCP (Claude Code, Cline, OpenAI Codex, Hermes Agent, Cursor, Continue, Gemini CLI, LM Studio, Zed, etc.). Le modèle d'IA derrière peut être n'importe lequel du moment qu'il sait utiliser des « outils » (DeepSeek, un modèle local, ...).
+
+1. Ouvrez un terminal dans le dossier du projet (sous Windows : tapez `cmd` dans la barre d'adresse du dossier, puis Entrée).
+2. Lancez `npm run register`. Il affiche, pour chaque programme, **le fichier de réglages et le bloc exact à coller**, avec vos vrais chemins déjà remplis.
+3. Ou laissez-le écrire le fichier à votre place (avec sauvegarde) : `npm run register -- --client cline --write`. Noms possibles : `desktop`, `cline`, `cursor`, `gemini`, `lmstudio`, `zed` (voir `npm run register -- --list`). Pour Codex, Hermes, Continue et Claude Code, le bloc est affiché à copier-coller.
+4. Redémarrez le programme.
+
+### Mon modèle d'IA ne sait pas voir les images
+
+Beaucoup de petits modèles ou de modèles locaux (et certains modèles DeepSeek) ne savent pas regarder une image. Ajoutez `--text-only` à la commande, par exemple `npm run register -- --text-only`. L'IA reçoit alors la carte **dessinée en caractères** (`~` mer, chiffres et lettres = États, `*` capitales, avec une légende) au lieu de captures d'écran, et tout le reste fonctionne pareil. Vous pouvez aussi définir la variable d'environnement `FMG_TEXT_ONLY=1` dans les réglages de votre programme, ou demander une carte en texte ponctuelle avec `map_view` et `text_map: true`.
+
+Un seul programme d'IA à la fois doit utiliser le serveur (ils se disputeraient le même port et la même fenêtre de navigateur).
 
 ## Dépannage
 

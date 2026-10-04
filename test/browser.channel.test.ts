@@ -17,7 +17,7 @@ function config() {
   cfg.browser.executablePath = null;
   cfg.browser.args = args;
   cfg.profileDir = join(work, `profile-${Math.random().toString(36).slice(2)}`);
-  cfg.map.seed = "trois";
+  cfg.map.seed = "333";
   return cfg;
 }
 

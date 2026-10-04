@@ -19,6 +19,9 @@ export interface AgentConfig {
   listLimit: number; // default size of list answers
   regionMargin: number; // empty border kept around a region shown with showRegion, as a fraction of the region size
   defaultRiverFlux: number; // flux given to the cells of a hand-drawn river that carry less (sets its width)
+  textMapCols: number; // default size of the text map (for models that cannot see images)
+  textMapRows: number;
+  textMapMax: number; // largest accepted size, in either direction
 }
 
 export const DEFAULT_CONFIG: AgentConfig = {
@@ -40,7 +43,10 @@ export const DEFAULT_CONFIG: AgentConfig = {
   importTimeoutMs: 60000,
   listLimit: 50,
   regionMargin: 0.08,
-  defaultRiverFlux: 30
+  defaultRiverFlux: 30,
+  textMapCols: 100,
+  textMapRows: 40,
+  textMapMax: 200
 };
 
 export const config: AgentConfig = { ...DEFAULT_CONFIG };

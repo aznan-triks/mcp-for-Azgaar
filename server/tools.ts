@@ -18,7 +18,7 @@ interface ToolResult {
 const text = (value: unknown): Content => ({ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) });
 
 export const SERVER_INSTRUCTIONS = `You edit a fantasy map shown live in a browser window (Azgaar's Fantasy Map Generator, offline). The person watches the window and may also edit by hand: look before you act.
-Workflow: map_summary (states, ids) -> map_view with grid/state_ids (you see the map; add region {x0,y0,x1,y1} to zoom on an area) -> map_select (red preview appears live) -> map_view to check the preview -> map_apply -> map_view to verify.
+Workflow: map_summary (states, ids) -> map_view with grid/state_ids (you see the map; add region {x0,y0,x1,y1} to zoom on an area; if you cannot see images, pass text_map:true to get the map drawn in characters) -> map_select (red preview appears live) -> map_view to check the preview -> map_apply -> map_view to verify.
 Finding things: when the person names a city or state, use map_list with name (case-insensitive part of the name) to get its id and position. Lists are cut at 50 rows by default; total is the real count.
 Coordinates: "map units" are the map's own coordinates (the graticule labels in map_view). Screenshot pixels are the browser window pixels: convert with map_locate {px,py}. Cells have integer ids; states, provinces, cultures, religions, burgs (cities), rivers, routes and markers too (0 = none/unclaimed).
 Extending a state: map_select shape ring {state, depth} (cells just outside it), optionally intersect with a rect to go one way only (combine_op intersect), then map_apply assignState. Capitals are never taken. Merging states: mergeStates; founding one: createState; provinces: createProvince (needs state-owned land); cultures: createCulture (then give it cells with assignCulture); religions: createReligion. Labels: map_list kind=labels shows them, moveLabel shifts/hides/resets one. Emblems: regenerateEmblem / setEmblemStyle.
@@ -44,6 +44,8 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     return { type: "image", data: data.toString("base64"), mimeType };
   };
   const settle = () => new Promise<void>(r => setTimeout(r, cfg.view.settleMs));
+  // Models that cannot look at images (set view.textOnly or FMG_TEXT_ONLY=1) get a map drawn with characters instead.
+  const viewContent = async (): Promise<Content> => (cfg.view.textOnly ? text(await session.call("textMap", {})) : screenshotContent());
   const autosave = async (): Promise<void> => {
     await saver.write();
   };
@@ -62,15 +64,19 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
         grid: z.boolean().optional(),
         state_ids: z.boolean().optional(),
         cell_ids: z.boolean().optional(),
-        region: z.object({ x0: z.number(), y0: z.number(), x1: z.number(), y1: z.number() }).optional()
+        region: z.object({ x0: z.number(), y0: z.number(), x1: z.number(), y1: z.number() }).optional(),
+        text_map: z.boolean().optional().describe("Answer with a map drawn in characters instead of a screenshot (for models that cannot see images)"),
+        cols: z.number().int().optional().describe("Width of the character map"),
+        rows: z.number().int().optional().describe("Height of the character map")
       }
     },
-    guarded(async ({ grid, state_ids, cell_ids, region }) => {
+    guarded(async ({ grid, state_ids, cell_ids, region, text_map, cols, rows }) => {
       if (region) await session.call("showRegion", region);
       const wantsNotes = Boolean(grid || state_ids || cell_ids);
       const notes = wantsNotes ? await session.call<Record<string, unknown>>("annotate", { grid, stateIds: state_ids, cellIds: cell_ids }) : {};
       await settle();
-      const image = await screenshotContent();
+      const asText = text_map ?? cfg.view.textOnly;
+      const image = asText ? text(await session.call("textMap", { cols, rows })) : await screenshotContent();
       if (wantsNotes) await session.call("clearAnnotations");
       const info = await session.call<{ states: { id: number; name: string; color: string }[]; camera: unknown }>("summary");
       return { content: [image, text({ camera: info.camera, annotations: notes, legend: info.states.map(s => ({ id: s.id, name: s.name, color: s.color })) })] };
@@ -164,7 +170,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
       const content: Content[] = [text({ result, history: history.state() })];
       if (view) {
         await settle();
-        content.unshift(await screenshotContent());
+        content.unshift(await viewContent());
       }
       return { content };
     })

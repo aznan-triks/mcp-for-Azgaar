@@ -38,4 +38,4 @@ Add an entry to the command registry in `overlay/agent/commands/` (name, paramet
 
 ## Configuration
 
-`config/fmg-mcp.json` (port, browser, window size, folders, history, limits, `allowEval`). Environment overrides: `FMG_HEADLESS`, `FMG_EXECUTABLE_PATH`, `FMG_PORT`, `FMG_MAPS_DIR`, `FMG_PROFILE_DIR`, `FMG_ALLOW_EVAL`, `FMG_CONFIG`.
+`config/fmg-mcp.json` (port, browser, window size, folders, history, limits, `allowEval`). Environment overrides: `FMG_HEADLESS`, `FMG_EXECUTABLE_PATH`, `FMG_PORT`, `FMG_MAPS_DIR`, `FMG_PROFILE_DIR`, `FMG_ALLOW_EVAL`, `FMG_TEXT_ONLY`, `FMG_CONFIG`.

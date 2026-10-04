@@ -9,7 +9,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const ROOT = join(import.meta.dirname, "..");
-const SEED = "trois";
+const SEED = "333";
 const work = mkdtempSync(join(tmpdir(), "fmg-e2e-"));
 const mapsDir = join(work, "maps");
 
@@ -61,8 +61,11 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     client = await connect();
     await ok("map_file", { action: "new", seed: SEED, width: 1280, height: 720 });
     baseline = json(await ok("map_summary"));
-    gazd = baseline.states.find((s: any) => s.name.includes("Gazd")).id;
-    khuzd = baseline.states.find((s: any) => s.name.includes("Khuzd")).id;
+    const big = baseline.states.filter((s: any) => s.cells >= 60);
+    const pairs = big.flatMap((a: any) => a.neighbours.map((n: number) => big.find((s: any) => s.id === n)).filter(Boolean).map((b: any) => [a, b]));
+    const best = pairs.sort((p: any, q: any) => Math.min(q[0].cells, q[1].cells) - Math.min(p[0].cells, p[1].cells))[0];
+    gazd = best[0].id;
+    khuzd = best[1].id;
   });
   after(async () => {
     await client.close();
@@ -76,6 +79,19 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     for (const n of ["map_view", "map_summary", "map_locate", "map_list", "map_select", "map_commands", "map_apply", "map_undo", "map_camera", "map_layers", "map_file", "map_status", "map_eval"]) assert.ok(names.includes(n), `missing ${n}`);
   });
 
+  it("draws the map in characters, with no image, for models that cannot see", async () => {
+    const r = await ok("map_view", { text_map: true, cols: 60, rows: 24 });
+    assert.equal(r.content.filter(p => p.type === "image").length, 0);
+    const map = JSON.parse((r.content.find(p => p.type === "text") as { text: string }).text);
+    assert.ok(map.rows, "the first text part holds the map");
+    assert.equal(map.rows.length, 24);
+    assert.ok(map.rows.every((line: string) => line.length === 60));
+    assert.ok(map.rows.join("").includes("~"), "sea is drawn");
+    assert.ok(Object.keys(map.key).length > 1, "states are listed in the key");
+    const refused = await client.callTool({ name: "map_view", arguments: { text_map: true, cols: 3 } });
+    assert.ok(refused.isError, "a too small size is refused");
+  });
+
   it("returns a real screenshot with legend and annotations", async () => {
     const r = await ok("map_view", { grid: true, state_ids: true });
     const img = r.content.find(p => p.type === "image");
@@ -85,7 +101,7 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     assert.equal(png.readUInt32BE(16), 1280);
     assert.equal(png.readUInt32BE(20), 720);
     const info = json(r);
-    assert.equal(info.legend.length, 16);
+    assert.equal(info.legend.length, baseline.counts.states);
     assert.ok(info.annotations.gridStep > 0);
     const plain = (await ok("map_view")).content.find(p => p.type === "image")?.data;
     assert.notEqual(plain, img.data, "annotations must change the picture");
@@ -166,7 +182,7 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
 
   it("map_eval works and takes an undo snapshot first", async () => {
     const r = json(await ok("map_eval", { code: "return FMG_AGENT.summary().counts.states" }));
-    assert.equal(r.result, 16);
+    assert.equal(r.result, baseline.counts.states);
     assert.ok(json(await ok("map_undo", { action: "list" })).undoable.includes("map_eval"));
   });
 
@@ -210,7 +226,7 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     assert.equal(json(await ok("map_undo", { action: "list" })).undoable.length, depth + 1, "only the second map_eval added an entry; the crashed edit left none");
     const ok2 = json(await ok("map_apply", { command: "shapeCone", params: { x: 640, y: 690, radius: 40, peak: 45, scope: "all" } }));
     assert.equal(ok2.result.details.mode, "rebuild", "the same edit works once the sabotage is removed");
-    assert.equal(json(await ok("map_summary")).counts.states, 16);
+    assert.equal(json(await ok("map_summary")).counts.states, baseline.counts.states);
   });
 
   it("founds a state through MCP, then undo removes it", async () => {
@@ -219,7 +235,7 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     const p = json(await ok("map_locate", { x: owner.pole[0], y: owner.pole[1] }));
     assert.equal(p.state.id, owner.id);
     const made = json(await ok("map_apply", { command: "createState", params: { x: owner.pole[0] + 3, y: owner.pole[1] + 3, name: "Mcpland" } }));
-    assert.ok(made.result.details.state > 16);
+    assert.ok(made.result.details.state > baseline.counts.states);
     assert.equal(json(await ok("map_summary")).counts.states, base.counts.states + 1);
     await ok("map_undo", { action: "undo" });
     const back = json(await ok("map_summary"));

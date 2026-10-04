@@ -2,6 +2,15 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.1.0
+
+**Plain words:** It now works with any AI program that supports MCP (Cline, Codex, Hermes, Cursor, LM Studio...) and any model, including models that cannot see images: they get the map drawn in characters.
+
+**Technical:**
+- `npm run register` prints ready-to-paste settings (JSON, TOML, YAML, command line) for Claude Desktop, Claude Code, Cline, Cursor, Gemini CLI, LM Studio, Zed, Codex, Hermes Agent and Continue, with absolute paths; `--client <name> --write` edits the JSON ones (backup first, refuses files that are not plain JSON); `--text-only` adds `FMG_TEXT_ONLY=1`. Locations and syntax come from each client's documentation (researched, not tested on those clients).
+- Text-only mode (`view.textOnly`, `FMG_TEXT_ONLY=1`, or `text_map: true` on `map_view`): no tool returns an image; `map_view` and `map_apply view` return a character map (`FMG_AGENT.textMap`: sea, lake, one symbol per state, capitals, key, coordinates of the area). Covered by an end-to-end test (no image part, requested size, key, bad size refused) and register tests (TOML/YAML/JSON output).
+- Tests no longer depend on one map: the fixed seed is now `333`, and the test states are picked from the generated map instead of being found by name. `npm run check` and the compatibility CI pass with it.
+
 ## 1.0.0
 
 **Plain words:** The first public release. Double-click `install.bat`, restart Claude, and ask it to show you the map. `update.bat` brings the newest Azgaar safely, and keeps your current one if the new one does not work.

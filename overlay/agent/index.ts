@@ -8,6 +8,7 @@ import { listLayers, setLayers } from "./layers";
 import { clearAnnotations, drawAnnotations, type OverlayOptions, showSelection } from "./overlay";
 import { camera, cellInfo, list, locate, summary } from "./queries";
 import { createSelection, describeSelection, dropSelections, SELECT_OPTIONS, SHAPES } from "./selection";
+import { textMap } from "./textmap";
 import { AgentError, type CommandResult, type Params } from "./types";
 
 const API_VERSION = 1;
@@ -80,6 +81,7 @@ const FMG_AGENT = {
   }),
   isReady: () => typeof pack !== "undefined" && Array.isArray(window.mapHistory) && window.mapHistory.length > 0,
   summary,
+  textMap,
   list,
   locate,
   cellInfo,

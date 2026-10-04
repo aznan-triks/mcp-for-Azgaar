@@ -20,7 +20,7 @@ describe("screenshot size guard", { timeout: 180000 }, () => {
     cfg.browser.executablePath = process.env.FMG_TEST_CHROMIUM ?? null;
     cfg.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
     cfg.profileDir = join(work, `p-${maxImageBytes}`);
-    cfg.map.seed = "trois";
+    cfg.map.seed = "333";
     cfg.view.format = "png";
     cfg.view.maxImageBytes = maxImageBytes;
     const web = await startStaticServer(cfg.azgaarDist, "127.0.0.1", 0);
@@ -55,7 +55,7 @@ describe("screenshot size guard", { timeout: 180000 }, () => {
     cfg.browser.executablePath = process.env.FMG_TEST_CHROMIUM ?? null;
     cfg.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
     cfg.profileDir = join(work, "fresh-profile"); // a brand new browser profile, like the person's first run
-    cfg.map.seed = "trois";
+    cfg.map.seed = "333";
     const web = await startStaticServer(cfg.azgaarDist, "127.0.0.1", 0);
     const session = new MapSession(cfg, web.url);
     try {

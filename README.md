@@ -2,7 +2,7 @@
 
 # mcp-for-Azgaar
 
-mcp-for-Azgaar connects your AI assistant (Claude Desktop or Claude Code) to [Azgaar's Fantasy Map Generator](https://github.com/Azgaar/Fantasy-Map-Generator). It is an MCP server—think of MCP as a plug that lets Claude use other programs. The map opens live in a real web browser (Google Chrome or Microsoft Edge) on your computer. You can watch Claude analyze geography, inspect realms, and redraw borders in real time, while retaining full freedom to click and edit by hand. Everything runs 100% locally and offline once installed: no account, no API key, and nothing is ever sent over the internet.
+mcp-for-Azgaar connects your AI assistant (Claude, Cline, Codex, Hermes, or any MCP-compatible program, with any model that can use tools) to [Azgaar's Fantasy Map Generator](https://github.com/Azgaar/Fantasy-Map-Generator). It is an MCP server—think of MCP as a plug that lets Claude use other programs. The map opens live in a real web browser (Google Chrome or Microsoft Edge) on your computer. You can watch Claude analyze geography, inspect realms, and redraw borders in real time, while retaining full freedom to click and edit by hand. Everything runs 100% locally and offline once installed: no account, no API key, and nothing is ever sent over the internet.
 
 What you can ask Claude:
 - "Show me the map"
@@ -15,7 +15,7 @@ What you can ask Claude:
 
 - Windows 10/11, macOS, or Linux.
 - Google Chrome or Microsoft Edge.
-- Claude Desktop (free app from [claude.ai/download](https://claude.ai/download)) or Claude Code.
+- An AI program that supports MCP: Claude Desktop (free app from [claude.ai/download](https://claude.ai/download)) is the easiest, but Claude Code, Cline, Codex, Hermes Agent, Cursor, LM Studio and others work too (see "Other AI programs" below).
 - An internet connection for installation only.
 
 ## Installation
@@ -50,11 +50,20 @@ Keep Azgaar up to date with a single command:
 - To test the latest development version: `npm run update -- --edge`
 - To revert to the known-good tested version: `npm run update -- --known-good`
 
-## Claude Code Users
+## Other AI Programs (not only Claude)
 
-- Run `npm run register` to display the exact command to paste:
-  `claude mcp add azgaar -- ...`
-- Run `npm run register -- --desktop` to write the Claude Desktop configuration file directly (creates a backup first).
+This is a standard MCP server, so it works with any AI program that supports MCP: Claude Code, Cline, OpenAI Codex, Hermes Agent, Cursor, Continue, Gemini CLI, LM Studio, Zed, and others. The AI model behind it can be anything that supports "tool calling" (DeepSeek, a local model, ...).
+
+1. Open a terminal in the project folder (on Windows: type `cmd` in the folder's address bar and press Enter).
+2. Run `npm run register`. It prints, for each program, **the settings file and the exact block to paste**, with your real paths already filled in.
+3. Or let it write the file for you (a backup is made first): `npm run register -- --client cline --write`. Names: `desktop`, `cline`, `cursor`, `gemini`, `lmstudio`, `zed` (see `npm run register -- --list`). Codex, Hermes, Continue and Claude Code are shown as text to paste.
+4. Restart the program.
+
+### My AI model cannot see images
+
+Many small or local models (and some DeepSeek models) cannot look at pictures. Add `--text-only` to the register command, for example `npm run register -- --text-only`. Claude then gets the map **drawn in characters** (`~` sea, digits/letters = states, `*` capitals, with a key) instead of screenshots, and everything else works the same. You can also set the environment variable `FMG_TEXT_ONLY=1` in your program's settings, or ask for one text map with `map_view` and `text_map: true`.
+
+Only one AI program should use the server at a time (they would fight over the same port and browser window).
 
 ## Troubleshooting
 

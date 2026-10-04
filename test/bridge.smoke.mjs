@@ -9,7 +9,7 @@ const cfg = loadConfig();
 const work = join(dirname(fileURLToPath(import.meta.url)), "..", ".test-tmp");
 cfg.browser.headless = true;
 cfg.profileDir = join(work, `profile-${process.pid}`);
-cfg.map.seed = "trois";
+cfg.map.seed = "333";
 if (process.env.FMG_TEST_CHROMIUM) { cfg.browser.executablePath = process.env.FMG_TEST_CHROMIUM; cfg.browser.channel = null; }
 cfg.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
 const web = await startStaticServer(cfg.azgaarDist, cfg.server.host, 0);
@@ -27,23 +27,26 @@ const A = (fn, arg) => page.evaluate(fn, arg);
 
 // ---- queries
 const sum = await A(() => FMG_AGENT.summary());
-check("summary lists states", sum.states.length === 16, `states=${sum.states.length}`);
-const gazd = sum.states.find(s => s.name.includes("Gazd")); const khuzd = sum.states.find(s => s.name.includes("Khuzd"));
-check("found Gazd and Khuzd", Boolean(gazd && khuzd), `${gazd?.id} ${khuzd?.id}`);
+check("summary lists states", sum.states.length > 5, `states=${sum.states.length}`);
+const bigStates = sum.states.filter(s => s.cells >= 60);
+const neighbourPairs = bigStates.flatMap(a => a.neighbours.map(n => bigStates.find(s => s.id === n)).filter(Boolean).map(b => [a, b]));
+// Two big neighbouring states, whatever the seed: the largest "smaller side" wins.
+const [gazd, khuzd] = neighbourPairs.sort((p, q) => Math.min(q[0].cells, q[1].cells) - Math.min(p[0].cells, p[1].cells))[0] ?? [];
+check("found two big neighbouring states", Boolean(gazd && khuzd), `${gazd?.id} ${khuzd?.id}`);
 const sumCellsLand = sum.landCells;
 const stateCellSum = () => A(() => { const s = FMG_AGENT.summary(); return s.states.reduce((n, x) => n + x.cells, 0) + s.unclaimedLandCells; });
 check("state cells + unclaimed = land cells (before)", (await stateCellSum()) === sumCellsLand);
 
 // pixel -> cell round trip at several zoom levels (camera centred on the probe cell, so it is always on screen)
 for (const scale of [1, 3, 6, 12]) {
-  const r = await A(async ([k]) => {
-    const cell = 3050; const [x, y] = pack.cells.p[cell];
+  const r = await A(async ([k, cell]) => {
+    const [x, y] = pack.cells.p[cell];
     await FMG_AGENT.setCamera({ x, y, scale: k, duration: 0 });
     const [px, py] = FMG_AGENT.mapToScreen(x, y);
     const back = FMG_AGENT.locate({ px, py });
     const off = FMG_AGENT.locate({ px: px + 3, py: py + 3 }); // a few pixels away must still be this cell or a direct neighbour
     return { want: cell, got: back.cell, px, py, offOk: off.cell === cell || pack.cells.c[cell].includes(off.cell) };
-  }, [scale]);
+  }, [scale, gazd.capital.cell]);
   const inView = r.px >= 0 && r.py >= 0 && r.px <= 1280 && r.py <= 720;
   check(`pixel->cell round trip at zoom ${scale}`, inView && r.got === r.want && r.offOk, `want ${r.want} got ${r.got} px=(${Math.round(r.px)},${Math.round(r.py)}) inView=${inView}`);
 }
@@ -266,7 +269,7 @@ await restoreBase();
   check("removeMarker: removed", rm.ok && (await A(() => pack.markers.length)) === nMarkers);
 
   // routes
-  const land = await A(() => { const a = pack.cells.i.filter(i => pack.cells.h[i] >= 20 && pack.cells.state[i] === pack.cells.state[3050]); return [pack.cells.p[a[0]], pack.cells.p[a[10]], pack.cells.p[a[20]]]; });
+  const land = await A(([probe]) => { const a = pack.cells.i.filter(i => pack.cells.h[i] >= 20 && pack.cells.state[i] === pack.cells.state[probe]); return [pack.cells.p[a[0]], pack.cells.p[a[10]], pack.cells.p[a[20]]]; }, [gazd.capital.cell]);
   const nRoutes = await A(() => pack.routes.length);
   const ar = await A(([pts]) => FMG_AGENT.apply("addRoute", { path: pts, group: "trails", name: "Old Trail" }), [land]);
   const links = await A(([id]) => Object.values(pack.cells.routes).some(o => Object.values(o).includes(id)), [ar.details.route]);
@@ -312,7 +315,7 @@ await restoreFeatures();
   const fin = await A(() => FMG_AGENT.summary());
   check("removeState: land becomes unclaimed, state count back, cities remain independent", rm.ok && fin.counts.states === base.counts.states && fin.unclaimedLandCells === cellsBefore + rm.details.landCellsNowUnclaimed && await A(([cap]) => pack.burgs[cap].state === 0 && !pack.burgs[cap].capital && !pack.burgs[cap].removed, [r.details.capitalBurg]), JSON.stringify(rm.details));
   check("removeState: figures stay coherent", await A(() => { const s = FMG_AGENT.summary(); return s.states.reduce((n, x) => n + x.cells, 0) + s.unclaimedLandCells === s.landCells; }));
-  check("a state can no longer be selected after removal", (await A(async () => { try { await FMG_AGENT.apply("removeState", { state: 17 }); return "no error"; } catch (e) { return e.message; } })).includes("does not exist"));
+  check("a state can no longer be selected after removal", (await A(async ([gone]) => { try { await FMG_AGENT.apply("removeState", { state: gone }); return "no error"; } catch (e) { return e.message; } }, [id])).includes("does not exist"));
   await restoreFeatures();
 }
 {
@@ -427,7 +430,7 @@ await restoreFeatures();
   await A(t => FMG_AGENT.importMap(t), featureBase);
   const base = await A(() => FMG_AGENT.summary());
   const into = base.states.find(x => x.id === gazd.id);
-  const away = base.states.find(x => x.name.includes("Khuzd"));
+  const away = base.states.find(x => x.id === khuzd.id);
   const oldCapital = away.capital.burg;
   const provinceCount = base.counts.provinces;
   const r = await A(([a, b]) => FMG_AGENT.apply("mergeStates", { states: [a], into: b }), [away.id, into.id]);

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
-import { claudeCodeCommand, desktopConfigPath, patchDesktopConfig, serverEntry } from "../scripts/register.mjs";
+import { claudeCodeCommand, codexToml, continueYaml, desktopConfigPath, hermesYaml, JSON_CLIENTS, patchDesktopConfig, serverEntry } from "../scripts/register.mjs";
 
 const work = mkdtempSync(join(tmpdir(), "fmg-reg-"));
 const entry = { command: "/usr/bin/node", args: ["/proj/scripts/start.mjs"] };
@@ -62,11 +62,39 @@ describe("register", () => {
   it("refuses a config it cannot parse and leaves it untouched", () => {
     const file = join(work, "broken.json");
     writeFileSync(file, "{ not json");
-    assert.throws(() => patchDesktopConfig(file, { entry }), /not valid JSON/);
+    assert.throws(() => patchDesktopConfig(file, { entry }), /not plain JSON/);
     assert.equal(readFileSync(file, "utf8"), "{ not json");
     assert.equal(readdirSync(work).filter(f => f.startsWith("broken.json.bak")).length, 0, "no backup of a file we did not touch");
     const arr = join(work, "array.json");
     writeFileSync(arr, "[1,2]");
     assert.throws(() => patchDesktopConfig(arr, { entry }), /does not hold a JSON object/);
+  });
+});
+
+describe("register: other AI programs", () => {
+  const e = { command: String.raw`C:\Program Files\nodejs\node.exe`, args: [String.raw`C:\tools\azgaar\scripts\start.mjs`] };
+
+  it("--text-only adds the environment variable that switches screenshots off", () => {
+    const t = serverEntry("/usr/bin/node", "/proj", { textOnly: true });
+    assert.deepEqual(t.env, { FMG_TEXT_ONLY: "1" });
+    assert.equal(serverEntry("/usr/bin/node", "/proj").env, undefined);
+  });
+
+  it("writes Zed's own key and every client's own file location", () => {
+    const file = join(work, "zed-settings.json");
+    patchDesktopConfig(file, { entry, key: JSON_CLIENTS.zed.key });
+    assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, "utf8"))), ["context_servers"]);
+    assert.match(JSON_CLIENTS.cline.file("win32", { APPDATA: "C:/A" }, "C:/u"), /saoudrizwan\.claude-dev[\\/]settings[\\/]cline_mcp_settings\.json$/);
+    assert.match(JSON_CLIENTS.cursor.file("linux", {}, "/home/a"), /\.cursor[\\/]mcp\.json$/);
+  });
+
+  it("produces valid TOML and YAML for Codex, Hermes and Continue (paths with spaces and backslashes)", () => {
+    const toml = codexToml("azgaar", { ...e, env: { FMG_TEXT_ONLY: "1" } });
+    const q = s => JSON.stringify(s);
+    assert.equal(toml, `[mcp_servers.azgaar]\ncommand = ${q(e.command)}\nargs = [${q(e.args[0])}]\nenv = { FMG_TEXT_ONLY = "1" }`);
+    assert.ok(toml.includes(String.raw`"C:\\Program Files\\nodejs\\node.exe"`), "backslashes are escaped");
+    const yaml = hermesYaml("azgaar", e);
+    assert.equal(yaml, `mcp_servers:\n  azgaar:\n    command: ${q(e.command)}\n    args:\n      - ${q(e.args[0])}`);
+    assert.match(continueYaml("azgaar", e), /^mcpServers:\n {2}- name: azgaar\n/);
   });
 });

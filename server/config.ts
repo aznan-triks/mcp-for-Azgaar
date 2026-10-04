@@ -24,7 +24,7 @@ const schema = z.object({
   map: z.object({ seed: z.string().nullable(), width: z.number().int().min(100), height: z.number().int().min(100) }),
   history: z.object({ maxEntries: z.number().int().min(1) }),
   autosave: z.object({ intervalSec: z.number().min(0) }), // 0 turns the periodic save off (saves after each edit remain)
-  view: z.object({ format: z.enum(["png", "jpeg"]), jpegQuality: z.number().int().min(1).max(100), settleMs: z.number().int().min(0), maxImageBytes: z.number().int().min(10000) }),
+  view: z.object({ format: z.enum(["png", "jpeg"]), jpegQuality: z.number().int().min(1).max(100), settleMs: z.number().int().min(0), maxImageBytes: z.number().int().min(10000), textOnly: z.boolean().default(false) }),
   limits: z.object({ listMax: z.number().int(), zoomMin: z.number(), zoomMax: z.number(), cameraMsMax: z.number().int(), mapSizeMin: z.number().int(), mapSizeMax: z.number().int() }),
   bridge: z.record(z.string(), z.unknown())
 });
@@ -50,6 +50,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (env.FMG_PORT) cfg.server.port = Number(env.FMG_PORT);
   if (env.FMG_MAPS_DIR) cfg.mapsDir = env.FMG_MAPS_DIR;
   if (env.FMG_PROFILE_DIR) cfg.profileDir = env.FMG_PROFILE_DIR;
+  const textOnly = flag(env.FMG_TEXT_ONLY);
+  if (textOnly !== undefined) cfg.view.textOnly = textOnly;
   const allowEval = flag(env.FMG_ALLOW_EVAL);
   if (allowEval !== undefined) cfg.allowEval = allowEval;
   const fromRoot = (p: string) => (isAbsolute(p) ? p : join(PROJECT_ROOT, p));

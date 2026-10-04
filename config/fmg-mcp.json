@@ -37,7 +37,8 @@
     "format": "png",
     "jpegQuality": 85,
     "settleMs": 200,
-    "maxImageBytes": 900000
+    "maxImageBytes": 900000,
+    "textOnly": false
   },
   "bridge": {},
   "limits": {
