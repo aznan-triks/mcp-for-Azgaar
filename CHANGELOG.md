@@ -2,6 +2,16 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.2.4
+
+**Plain words:** Your selection now survives undo and redo, the AI is warned when the map did not apply the zoom it asked for, saved maps can be told apart by size and date, and one call can frame the whole map before a screenshot.
+
+**Technical:**
+- Selections survive undo/redo: the bridge remembers the cells' map positions and finds them again after the reload (`importMap(text, keepSelections)`); loading a different file still drops them.
+- `map_camera` returns the scale really applied and a `warning` when it differs from the request by more than `limits.scaleTolerance` (new setting, documented in English and French).
+- `map_file list` returns name, path, size and modification date, newest first. `map_view` accepts `whole_map`.
+- Ported from the private working repository; its own layer presets were not ported (Azgaar's built-in `preset` already covers it).
+- Verified on Windows 10 (Node 25, real Chrome): `npm run check` passes in full, including the bridge tests for selections kept/dropped.
 ## 1.2.3
 
 **Plain words:** The documentation is now complete: every tool, command, setting and script is explained, there are 16+ ready-made recipes, a troubleshooting guide, a FAQ, security and uninstall pages, all in English and French, and a test fails if anything is ever left undocumented.

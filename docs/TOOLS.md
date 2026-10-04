@@ -26,7 +26,7 @@ Every tool the MCP server offers, with its parameters. Your AI program shows the
 
 ## map_view
 
-Screenshot of what the browser window currently shows, plus a legend (state ids/names/colours) and the camera. Options draw temporary annotations for this screenshot only: grid = coordinate graticule labelled in map units; state_ids = id badge on each state; cell_ids = cell ids (only when few cells are visible: zoom in first). A pending selection is always visible as a red overlay. `region` {x0,y0,x1,y1} in map units first zooms the window onto that rectangle (it stays there: use map_camera scale 1 to see the whole map again).
+Screenshot of what the browser window currently shows, plus a legend (state ids/names/colours) and the camera. Options draw temporary annotations for this screenshot only: grid = coordinate graticule labelled in map units; state_ids = id badge on each state; cell_ids = cell ids (only when few cells are visible: zoom in first). whole_map=true first frames the whole map (otherwise the shot shows exactly what the window shows now, zoom included). A pending selection is always visible as a red overlay. `region` {x0,y0,x1,y1} in map units first zooms the window onto that rectangle (it stays there: call map_camera with scale 1 to see the whole map again; its reply states the scale really applied, which may be higher if the window cannot show the whole map at 1).
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
@@ -34,6 +34,7 @@ Screenshot of what the browser window currently shows, plus a legend (state ids/
 | `state_ids` | boolean | no |  |
 | `cell_ids` | boolean | no |  |
 | `region` | object {x0, y0, x1, y1} | no |  |
+| `whole_map` | boolean | no |  |
 | `text_map` | boolean | no | Answer with a map drawn in characters instead of a screenshot (for models that cannot see images) |
 | `cols` | integer (min -9007199254740991, max 9007199254740991) | no | Width of the character map |
 | `rows` | integer (min -9007199254740991, max 9007199254740991) | no | Height of the character map |
@@ -104,7 +105,7 @@ Run an edit command (see map_commands) on a selection or entity. The previous st
 
 ## map_undo
 
-Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections do not survive the reload: select again before the next edit.
+Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections survive (their cells are found again by position); check with map_view before editing.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
@@ -123,7 +124,7 @@ Layers are what the person sees: states, borders, provinces, cultures, religions
 
 ## map_camera
 
-Zoom/pan the view (what the person sees). x,y = map units to centre on (default: map centre), scale 1 = whole map, higher = closer. duration_ms animates the move.
+Zoom/pan the view (what the person sees). x,y = map units to centre on (default: map centre), scale 1 = whole map, higher = closer. The map clamps the scale to its own limits: the reply gives the scale really applied and a warning when it differs from the one asked. duration_ms animates the move.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
@@ -134,7 +135,7 @@ Zoom/pan the view (what the person sees). x,y = map units to centre on (default:
 
 ## map_file
 
-save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped). list: saved maps. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:"archipelago"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.
+save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped). list: saved maps with path, size and modification date, newest first. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:"archipelago"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|

@@ -69,6 +69,7 @@ The table below lists every configuration setting available in `config/fmg-mcp.j
 | `limits.zoomMin` | number | `0.5` | Minimum allowable zoom scale factor in `map_camera`. | Lower if you need to zoom out farther than the default minimum. |
 | `limits.zoomMax` | number | `80` | Maximum allowable zoom scale factor in `map_camera`. | Increase if you need closer zoom magnification for micro-regions. |
 | `limits.cameraMsMax` | integer | `5000` | Maximum camera transition animation time in milliseconds in `map_camera`. | Adjust if you want to allow longer animated pans across the map. |
+| `limits.scaleTolerance` | number | `0.01` | Difference allowed between the zoom asked in `map_camera` and the zoom the map really applied before a warning is returned. | Raise it if you get warnings for harmless rounding differences. |
 | `limits.mapSizeMin` | integer | `100` | Minimum allowed width or height in map units when creating a new map with `map_file`. | Adjust to enforce custom lower bounds on new map sizes. |
 | `limits.mapSizeMax` | integer | `8000` | Maximum allowed width or height in map units when creating a new map with `map_file`. | Adjust to enforce custom upper bounds on new map sizes. |
 | `limits.exportTimeoutMs` | integer (min 1000) | `120000` | Maximum time in milliseconds to wait for a file export or file chooser operation. | Increase if large vector SVG or zip tile exports take longer than two minutes. |

@@ -169,7 +169,8 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     await ok("map_file", { action: "load", name: "checkpoint one" });
     const loaded = json(await ok("map_summary"));
     assert.deepEqual(loaded.states.map((s: any) => [s.id, s.name, s.cells]), snap.states.map((s: any) => [s.id, s.name, s.cells]));
-    assert.ok(json(await ok("map_file", { action: "list" })).maps.includes("checkpoint one"));
+    const listed = json(await ok("map_file", { action: "list" })).maps.find((m: any) => m.name === "checkpoint one");
+    assert.ok(listed && listed.sizeBytes > 0 && listed.path.endsWith("checkpoint one.map") && !Number.isNaN(Date.parse(listed.modified)), "list gives name, path, size and date");
     for (const name of ["../escape", "a/b", "..", ""]) assert.ok((await call("map_file", { action: "save", name })).isError, `name "${name}" must be refused`);
   });
 
@@ -274,6 +275,7 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     const view = await ok("map_view", { region: { x0: 400, y0: 260, x1: 600, y1: 420 }, grid: true });
     assert.ok(view.content.some(p => p.type === "image"));
     assert.ok(json(view).camera.scale > 1.5, "the window zoomed onto the region");
+    assert.ok(json(await ok("map_view", { whole_map: true })).camera.scale <= 1.01, "whole_map frames the whole map before the shot");
     await ok("map_camera", { scale: 1 });
   });
 

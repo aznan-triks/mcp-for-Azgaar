@@ -123,6 +123,20 @@ await A(t => FMG_AGENT.importMap(t), snap);
 const hRestored = await hashPolitics();
 check("restore returns politics exactly (states, provinces, burgs, names)", hRestored === hBefore, `${Date.now() - t0} ms for export+change+restore`);
 check("bridge survives a map reload", await A(() => FMG_AGENT.isReady() && typeof FMG_AGENT.summary().cells === "number"));
+
+// ---- selections survive an undo-style reload (kept by position), but not a plain load
+const selKeep = await A(([from, to]) => FMG_AGENT.select("border", { from, to, depth: 3 }, {}), [gazd.id, khuzd.id]);
+await A(([t]) => FMG_AGENT.importMap(t, true), [snap]);
+const selAfter = await A(([id]) => { try { return FMG_AGENT.describeSelection(id); } catch { return null; } }, [selKeep.id]);
+check("selection kept after a reload that keeps selections", selAfter !== null && selAfter.count === selKeep.count, `${selAfter?.count} of ${selKeep.count} cells`);
+await A(([t]) => FMG_AGENT.importMap(t), [snap]);
+check("selection dropped by a plain reload", await A(([id]) => { try { FMG_AGENT.describeSelection(id); return false; } catch { return true; } }, [selKeep.id]));
+
+// ---- map_layers `only`: exactly these layers
+const layersBefore = await A(() => FMG_AGENT.layers().active);
+const onlyState = await A(() => FMG_AGENT.setLayers({ only: ["states", "borders"] }));
+check("layers only: exactly the listed layers are on", onlyState.active.length === 2 && onlyState.active.includes("states") && onlyState.active.includes("borders"), onlyState.active.join(","));
+await A(([ids]) => FMG_AGENT.setLayers({ only: ids }), [layersBefore]); // leave the view as it was for the next tests
 await page.screenshot({ path: "/tmp/bridge-final.png" });
 
 

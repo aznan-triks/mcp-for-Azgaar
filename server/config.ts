@@ -26,7 +26,7 @@ const schema = z.object({
   history: z.object({ maxEntries: z.number().int().min(1) }),
   autosave: z.object({ intervalSec: z.number().min(0) }), // 0 turns the periodic save off (saves after each edit remain)
   view: z.object({ format: z.enum(["png", "jpeg"]), jpegQuality: z.number().int().min(1).max(100), settleMs: z.number().int().min(0), maxImageBytes: z.number().int().min(10000), textOnly: z.boolean().default(false) }),
-  limits: z.object({ listMax: z.number().int(), zoomMin: z.number(), zoomMax: z.number(), cameraMsMax: z.number().int(), mapSizeMin: z.number().int(), mapSizeMax: z.number().int(), exportTimeoutMs: z.number().int().min(1000) }),
+  limits: z.object({ listMax: z.number().int(), zoomMin: z.number(), zoomMax: z.number(), cameraMsMax: z.number().int(), scaleTolerance: z.number(), mapSizeMin: z.number().int(), mapSizeMax: z.number().int(), exportTimeoutMs: z.number().int().min(1000) }),
   bridge: z.record(z.string(), z.unknown())
 });
 

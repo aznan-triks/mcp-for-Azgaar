@@ -272,6 +272,27 @@ export function dropSelections(): void {
   store.clear();
 }
 
+/** Remembers every selection by the map position of its cells, so it can outlive a reload that renumbers cells. */
+export function snapshotSelections(): [string, [number, number][]][] {
+  return [...store].map(([id, cells]) => [
+    id,
+    [...cells].map(c => [pack.cells.p[c][0], pack.cells.p[c][1]] as [number, number])
+  ]);
+}
+
+/** Rebuilds snapshotted selections on the freshly loaded map (same ids, cells found again by position). */
+export function restoreSelections(snapshot: [string, [number, number][]][]): void {
+  store.clear();
+  for (const [id, points] of snapshot) {
+    const cells = new Set<number>();
+    for (const [x, y] of points) {
+      const cell = Pack.findCell(x, y);
+      if (cell !== undefined) cells.add(cell);
+    }
+    store.set(id, cells);
+  }
+}
+
 export function describeSelection(id: string): SelectionInfo {
   const cells = getSelection(id);
   const byState: Record<number, number> = {};

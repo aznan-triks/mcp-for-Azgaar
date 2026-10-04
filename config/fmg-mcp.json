@@ -47,6 +47,7 @@
     "zoomMin": 0.5,
     "zoomMax": 80,
     "cameraMsMax": 5000,
+    "scaleTolerance": 0.01,
     "mapSizeMin": 100,
     "mapSizeMax": 8000,
     "exportTimeoutMs": 120000

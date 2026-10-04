@@ -82,7 +82,7 @@ export class History {
   }
 
   private async restore(entry: Entry): Promise<void> {
-    await this.session.call("importMap", readFileSync(entry.file, "utf8"));
+    await this.session.call("importMap", readFileSync(entry.file, "utf8"), true); // same geography: keep selections
   }
 
   async undo(): Promise<Entry> {

@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -61,18 +61,20 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     {
       title: "See the map",
       description:
-        "Screenshot of what the browser window currently shows, plus a legend (state ids/names/colours) and the camera. Options draw temporary annotations for this screenshot only: grid = coordinate graticule labelled in map units; state_ids = id badge on each state; cell_ids = cell ids (only when few cells are visible: zoom in first). A pending selection is always visible as a red overlay. `region` {x0,y0,x1,y1} in map units first zooms the window onto that rectangle (it stays there: use map_camera scale 1 to see the whole map again).",
+        "Screenshot of what the browser window currently shows, plus a legend (state ids/names/colours) and the camera. Options draw temporary annotations for this screenshot only: grid = coordinate graticule labelled in map units; state_ids = id badge on each state; cell_ids = cell ids (only when few cells are visible: zoom in first). whole_map=true first frames the whole map (otherwise the shot shows exactly what the window shows now, zoom included). A pending selection is always visible as a red overlay. `region` {x0,y0,x1,y1} in map units first zooms the window onto that rectangle (it stays there: call map_camera with scale 1 to see the whole map again; its reply states the scale really applied, which may be higher if the window cannot show the whole map at 1).",
       inputSchema: {
         grid: z.boolean().optional(),
         state_ids: z.boolean().optional(),
         cell_ids: z.boolean().optional(),
         region: z.object({ x0: z.number(), y0: z.number(), x1: z.number(), y1: z.number() }).optional(),
+        whole_map: z.boolean().optional(),
         text_map: z.boolean().optional().describe("Answer with a map drawn in characters instead of a screenshot (for models that cannot see images)"),
         cols: z.number().int().optional().describe("Width of the character map"),
         rows: z.number().int().optional().describe("Height of the character map")
       }
     },
-    guarded(async ({ grid, state_ids, cell_ids, region, text_map, cols, rows }) => {
+    guarded(async ({ grid, state_ids, cell_ids, region, whole_map, text_map, cols, rows }) => {
+      if (whole_map && !region) await session.call("setCamera", { scale: 1, duration: 0 });
       if (region) await session.call("showRegion", region);
       const wantsNotes = Boolean(grid || state_ids || cell_ids);
       const notes = wantsNotes ? await session.call<Record<string, unknown>>("annotate", { grid, stateIds: state_ids, cellIds: cell_ids }) : {};
@@ -182,7 +184,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     "map_undo",
     {
       title: "Undo / redo",
-      description: "Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections do not survive the reload: select again before the next edit.",
+      description: "Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections survive (their cells are found again by position); check with map_view before editing.",
       inputSchema: { action: z.enum(["undo", "redo", "list"]) }
     },
     guarded(async ({ action }) => {
@@ -211,10 +213,15 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     "map_camera",
     {
       title: "Move the camera",
-      description: "Zoom/pan the view (what the person sees). x,y = map units to centre on (default: map centre), scale 1 = whole map, higher = closer. duration_ms animates the move.",
+      description: "Zoom/pan the view (what the person sees). x,y = map units to centre on (default: map centre), scale 1 = whole map, higher = closer. The map clamps the scale to its own limits: the reply gives the scale really applied and a warning when it differs from the one asked. duration_ms animates the move.",
       inputSchema: { x: z.number().optional(), y: z.number().optional(), scale: z.number().min(cfg.limits.zoomMin).max(cfg.limits.zoomMax).optional(), duration_ms: z.number().int().min(0).max(cfg.limits.cameraMsMax).optional() }
     },
-    guarded(async ({ x, y, scale, duration_ms }) => ({ content: [text(await session.call("setCamera", { x, y, scale, duration: duration_ms }))] }))
+    guarded(async ({ x, y, scale, duration_ms }) => {
+      const camera = await session.call<{ scale: number }>("setCamera", { x, y, scale, duration: duration_ms });
+      // The map clamps the zoom silently: tell the AI when the scale it asked for is not the one it got.
+      const warning = scale !== undefined && Math.abs(camera.scale - scale) > cfg.limits.scaleTolerance ? `Requested scale ${scale} but the map applied ${camera.scale}: the real limits depend on the map size relative to the window.` : undefined;
+      return { content: [text(warning ? { ...camera, warning } : camera)] };
+    })
   );
 
   server.registerTool(
@@ -222,12 +229,12 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     {
       title: "Save / load / new map",
       description:
-        "save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped). list: saved maps. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:\"archipelago\"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.",
+        "save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped). list: saved maps with path, size and modification date, newest first. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:\"archipelago\"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.",
       inputSchema: { action: z.enum(["save", "load", "list", "new"]), options: z.record(z.string(), z.unknown()).optional(), name: z.string().optional(), seed: z.string().optional(), width: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional(), height: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional() }
     },
     guarded(async ({ action, name, seed, width, height, options }) => {
       mkdirSync(cfg.mapsDir, { recursive: true });
-      if (action === "list") return { content: [text({ maps: readdirSync(cfg.mapsDir).filter(f => f.endsWith(".map")).map(f => f.replace(/\.map$/, "")) })] };
+      if (action === "list") return { content: [text({ maps: readdirSync(cfg.mapsDir).filter(f => f.endsWith(".map")).map(f => { const info = statSync(join(cfg.mapsDir, f)); return { name: f.replace(/\.map$/, ""), path: join(cfg.mapsDir, f), sizeBytes: info.size, modified: info.mtime.toISOString() }; }).sort((a, b) => b.modified.localeCompare(a.modified)) })] };
       if (action === "new") {
         if (options) await session.call("setSettings", { section: "generation", values: options }); // validated by Azgaar; kept for the generation below
         await session.openNew({ seed, width, height });
