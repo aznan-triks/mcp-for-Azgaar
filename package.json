@@ -1,0 +1,46 @@
+{
+  "name": "mcp-for-azgaar",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "description": "MCP server that lets an AI see and edit an Azgaar Fantasy Map Generator map, live, fully offline",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "update": "node scripts/update.mjs",
+    "start": "node scripts/start.mjs",
+    "register": "node scripts/register.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "compat": "node scripts/compat.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "playwright-core": "^1.63.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
+  },
+  "license": "MIT",
+  "author": "aznan-triks",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aznan-triks/mcp-for-Azgaar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aznan-triks/mcp-for-Azgaar/issues"
+  },
+  "homepage": "https://github.com/aznan-triks/mcp-for-Azgaar#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "azgaar",
+    "fantasy-map-generator",
+    "claude",
+    "ai"
+  ]
+}

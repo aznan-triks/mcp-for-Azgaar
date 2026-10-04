@@ -1,0 +1,7 @@
+node_modules/
+upstream/
+maps/
+.browser-profile*/
+.test-tmp/
+.env
+*.local

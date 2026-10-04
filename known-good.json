@@ -1,0 +1,5 @@
+{
+  "ref": "574861c583177ebfd078733d6eb43d67a9e4fb65",
+  "label": "Azgaar's Fantasy Map Generator 1.153.1",
+  "note": "Last Azgaar version this bridge was fully tested against. `npm run setup` installs it; `npm run update` tries newer ones and keeps this one if they break."
+}

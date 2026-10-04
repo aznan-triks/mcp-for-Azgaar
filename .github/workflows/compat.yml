@@ -1,0 +1,39 @@
+name: compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # every Monday: does the newest Azgaar still work with the bridge?
+
+jobs:
+  tested-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run setup -- --no-register --no-doctor
+      - run: npm run check
+        env:
+          FMG_TEST_ARGS: --no-sandbox
+
+  newest-azgaar:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run setup -- --no-register --no-doctor
+        env:
+          FMG_TEST_ARGS: --no-sandbox
+      - name: Try the newest Azgaar release (fails if the bridge needs an update)
+        run: npm run update
+        env:
+          FMG_TEST_ARGS: --no-sandbox
