@@ -80,6 +80,12 @@ describe("register: other AI programs", () => {
     assert.equal(serverEntry("/usr/bin/node", "/proj").env, undefined);
   });
 
+  it("the Claude Code command carries the text-only variable and quotes paths with spaces", () => {
+    const cmd = claudeCodeCommand("azgaar", serverEntry("/usr/bin/node", "/my projects/az", { textOnly: true }));
+    assert.ok(cmd.startsWith("claude mcp add --env FMG_TEXT_ONLY=1 azgaar -- /usr/bin/node \""), cmd);
+    assert.ok(cmd.endsWith('start.mjs"') && cmd.includes("my projects"), cmd);
+  });
+
   it("writes Zed's own key and every client's own file location", () => {
     const file = join(work, "zed-settings.json");
     patchDesktopConfig(file, { entry, key: JSON_CLIENTS.zed.key });

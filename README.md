@@ -16,6 +16,7 @@ What you can ask Claude:
 - Windows 10/11, macOS, or Linux.
 - Google Chrome or Microsoft Edge.
 - An AI program that supports MCP: Claude Desktop (free app from [claude.ai/download](https://claude.ai/download)) is the easiest, but Claude Code, Cline, Codex, Hermes Agent, Cursor, LM Studio and others work too (see "Other AI programs" below).
+- Node.js 22.18 or newer (a free program; `install.bat` installs it for you if it is missing).
 - An internet connection for installation only.
 
 ## Installation
@@ -26,6 +27,7 @@ What you can ask Claude:
    - *What you should see*: A folder named `mcp-for-Azgaar` with files including `install.bat`.
 2. **Run the installer**: Double-click `install.bat`. If Node.js is missing, the installer downloads it automatically via Windows winget and asks you to double-click `install.bat` once more. Setup takes a few minutes to download Azgaar and finish installation. If Windows shows a blue "Windows protected your PC" screen, click **More info**, then **Run anyway** (the file simply comes from the internet).
    - *What you should see*: A console window displaying installation steps, ending with a self-test that reports "All good".
+   - *Good to know*: if Claude Desktop is installed, the installer also connects it to the tool (a backup of its settings file is made first). To skip that, run `npm run setup -- --no-register` yourself instead of double-clicking. Command-line users who cloned the repository: `npm install`, then `npm run setup`.
 3. **Restart Claude Desktop**: Fully exit Claude Desktop (right-click the Claude icon in your Windows system tray near the clock and select Exit), then reopen Claude Desktop. Start a chat and ask: `Show me the map`.
    - *What you should see*: A browser window opens displaying your map, and Claude describes it to you.
 
@@ -75,6 +77,9 @@ Another copy of the server is running, or another AI client has bound the port. 
 
 **No browser found**
 Install Google Chrome or Microsoft Edge in their default locations.
+
+**Export fails, or the map window will not open again after a crash**
+A Chrome window left over from a previous run may still hold the tool's browser profile. Close every Chrome window opened by the tool (Task Manager > Chrome), or delete the `.browser-profile` folder in the project, then ask again.
 
 **install.bat window closes instantly**
 Do not use "Run as administrator". Open the folder in a terminal (Command Prompt or PowerShell) and run `npm run setup` to see the error output.

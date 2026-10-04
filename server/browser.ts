@@ -141,7 +141,7 @@ export class MapSession {
     waiting.catch(() => undefined); // reported below if the trigger itself succeeds but nothing is downloaded
     await trigger();
     const download = await waiting.catch(() => {
-      throw new Error("Azgaar did not produce a file (nothing was downloaded). Check the map is loaded, then try again.");
+      throw new Error("Azgaar did not produce a file (nothing was downloaded). If the browser window was closed or crashed, ask again (it reopens); if it keeps failing, close any leftover Chrome window from a previous run, or delete the .browser-profile folder.");
     });
     const suggestedName = download.suggestedFilename();
     const ext = extname(suggestedName);

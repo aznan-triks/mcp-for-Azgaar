@@ -16,6 +16,7 @@ Exemples de demandes possibles à Claude :
 - Windows 10/11, macOS ou Linux.
 - Google Chrome ou Microsoft Edge.
 - Un programme d'IA compatible MCP : Claude Desktop (application gratuite sur [claude.ai/download](https://claude.ai/download)) est le plus simple, mais Claude Code, Cline, Codex, Hermes Agent, Cursor, LM Studio et d'autres fonctionnent aussi (voir « Autres programmes d'IA » plus bas).
+- Node.js 22.18 ou plus récent (un programme gratuit ; `install.bat` l'installe pour vous s'il manque).
 - Une connexion Internet pour l'installation uniquement.
 
 ## Installation
@@ -26,6 +27,7 @@ Exemples de demandes possibles à Claude :
    - *Ce que vous devez voir* : Un dossier `mcp-for-Azgaar` contenant des fichiers dont `install.bat`.
 2. **Lancer l'installateur** : Double-cliquez sur `install.bat`. Si Node.js n'est pas présent sur votre PC, le script l'installe automatiquement avec l'outil winget de Windows et vous invite à double-cliquer de nouveau sur `install.bat`. La préparation prend quelques minutes pour télécharger Azgaar et configurer les fichiers. Si Windows affiche un écran bleu « Windows a protégé votre ordinateur », cliquez sur **Informations complémentaires** puis **Exécuter quand même** (le fichier vient simplement d'internet).
    - *Ce que vous devez voir* : Une fenêtre noire affichant les étapes, qui se termine par un auto-test indiquant « All good ».
+   - *Bon à savoir* : si Claude Desktop est installé, l'installateur le branche aussi à l'outil (une sauvegarde de son fichier de réglages est faite d'abord). Pour l'éviter, lancez vous-même `npm run setup -- --no-register` au lieu du double-clic. En ligne de commande après un clonage : `npm install`, puis `npm run setup`.
 3. **Redémarrer Claude Desktop** : Fermez complètement Claude Desktop (faites un clic droit sur l'icône de Claude dans la zone de notification de Windows près de l'horloge et choisissez Quitter), puis rouvrez Claude Desktop. Ouvrez une conversation et écrivez : `Montre-moi la carte`.
    - *Ce que vous devez voir* : Une fenêtre de navigateur s'ouvre avec votre carte, et Claude vous décrit ce qu'il voit.
 
@@ -75,6 +77,9 @@ Une autre copie du serveur tourne déjà, ou un autre logiciel d'IA utilise ce p
 
 **Aucun navigateur trouvé**
 Installez Google Chrome ou Microsoft Edge à leur emplacement standard.
+
+**L'export échoue, ou la fenêtre de la carte ne se rouvre pas après un plantage**
+Une fenêtre Chrome restée ouverte d'une session précédente peut encore bloquer le profil du navigateur de l'outil. Fermez toutes les fenêtres Chrome ouvertes par l'outil (Gestionnaire des tâches > Chrome), ou supprimez le dossier `.browser-profile` du projet, puis redemandez.
 
 **La fenêtre install.bat se ferme instantanément**
 Ne faites pas « Exécuter en tant qu'administrateur ». Ouvrez le dossier dans un terminal (PowerShell ou Invite de commandes) et lancez `npm run setup` pour lire le message d'erreur.

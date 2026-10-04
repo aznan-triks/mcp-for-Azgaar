@@ -54,7 +54,8 @@ export function serverEntry(nodePath = process.execPath, rootDir = root, { textO
 
 const quote = s => (/[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s);
 export function claudeCodeCommand(name = DEFAULT_NAME, entry = serverEntry()) {
-  return `claude mcp add ${name} -- ${[entry.command, ...entry.args].map(quote).join(" ")}`;
+  const env = Object.entries(entry.env ?? {}).map(([k, v]) => `--env ${k}=${quote(v)} `).join("");
+  return `claude mcp add ${env}${name} -- ${[entry.command, ...entry.args].map(quote).join(" ")}`;
 }
 
 /** Adds, updates or removes the entry. Never overwrites a file it cannot parse. Returns what happened. */

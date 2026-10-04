@@ -2,6 +2,14 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.2.1
+
+**Plain words:** Fixes found by an independent test run: the Claude Code command now carries the text-only setting, the installer no longer prints a security warning, and the README says more about Node, Claude Desktop and a stuck browser window.
+
+**Technical:**
+- `claude mcp add` printed by `npm run register -- --text-only` now includes `--env FMG_TEXT_ONLY=1` (test added). The installer starts npm and vite through Node, without a shell (no DEP0190 warning, no argument quoting). The failed-download error now says what to try. README: Node version, automatic Claude Desktop connection and `--no-register`, command-line install, leftover-Chrome troubleshooting.
+- Checked independently by Antigravity (Gemini 3.8 Flash, medium effort) on a fresh clone of the published repository: 43 checks, all passed, including exports (svg, png, jpeg, json, geojson, csv, map, tiles), settings, regenerate + undo, interface tools and rapid concurrent calls. The installer now unpacks with Windows' own `tar.exe` and a relative archive name (found while re-testing from Git Bash, where Git's GNU tar read `C:` as a machine name). Its fourth finding (paths with spaces unquoted) did not reproduce: they are quoted.
+
 ## 1.2.0
 
 **Plain words:** The AI can now do much more than edit borders: it can choose which layers are drawn (for example only the heightmap and the cultures) and export pictures and data to files, set how new maps are generated, run any of Azgaar's own actions, and operate Azgaar's screens like a person, so almost everything Azgaar offers is within its reach.

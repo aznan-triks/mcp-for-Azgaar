@@ -13,13 +13,20 @@ export const stateFile = join(root, "upstream", "state.json");
 export const knownGood = () => JSON.parse(readFileSync(join(root, "known-good.json"), "utf8"));
 
 const REPO = "Azgaar/Fantasy-Map-Generator";
-const win = process.platform === "win32";
-const npm = win ? "npm.cmd" : "npm";
-const npx = win ? "npx.cmd" : "npx";
+
+// npm and vite are started through Node itself, never through a shell: no shell warnings, no argument-quoting surprises.
+function npmCli() {
+  const bin = dirname(process.execPath);
+  const candidates = [process.env.npm_execpath, join(bin, "node_modules", "npm", "bin", "npm-cli.js"), join(bin, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js")];
+  const found = candidates.find(c => c && existsSync(c));
+  if (!found) throw new Error("Could not find npm next to Node. Start the setup with: npm run setup");
+  return found;
+}
+const viteCli = dir => join(dir, "node_modules", "vite", "bin", "vite.js");
 
 export function run(cmd, args, cwd, quiet = false) {
   if (!quiet) console.log(`> ${cmd} ${args.join(" ")}`);
-  return spawnSync(cmd, args, { cwd, stdio: quiet ? "pipe" : "inherit", shell: win && cmd !== process.execPath && cmd !== "tar", encoding: "utf8" });
+  return spawnSync(cmd, args, { cwd, stdio: quiet ? "pipe" : "inherit", shell: false, encoding: "utf8" });
 }
 
 export async function latestRelease() {
@@ -39,7 +46,9 @@ export async function download(ref, dest) {
   writeFileSync(archive, Buffer.from(await res.arrayBuffer()));
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
-  const tar = run("tar", ["-xzf", archive, "-C", dest, "--strip-components=1"], root, true);
+  // Windows ships its own tar; a GNU tar from Git Bash that comes first in PATH misreads "C:\..." paths
+  const winTar = join(process.env.SystemRoot ?? String.raw`C:\Windows`, "System32", "tar.exe");
+  const tar = run(process.platform === "win32" && existsSync(winTar) ? winTar : "tar", ["-xzf", "azgaar.tar.gz", "-C", dest, "--strip-components=1"], work, true);
   rmSync(work, { recursive: true, force: true });
   if (tar.status !== 0) throw new Error(`Could not unpack the download (tar): ${tar.stderr || tar.error}`);
 }
@@ -141,10 +150,10 @@ export function applyPatches(dir) {
 export const incompatible = results => results.filter(r => r.required && r.status === "missing");
 
 export function install(dir) {
-  const ci = run(npm, ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], dir);
+  const ci = run(process.execPath, [npmCli(), "ci", "--ignore-scripts", "--no-audit", "--no-fund"], dir);
   if (ci.status !== 0) throw new Error("npm could not install Azgaar's dependencies (see the messages above).");
   // --mode electron: relative base path and no analytics (the default web build breaks when served locally)
-  const build = run(npx, ["vite", "build", "--mode", "electron"], dir);
+  const build = run(process.execPath, [viteCli(dir), "build", "--mode", "electron"], dir);
   if (build.status !== 0 || !existsSync(join(dir, "dist-electron", "renderer", "index.html"))) throw new Error("Azgaar did not build with the bridge (see the messages above).");
 }
 
