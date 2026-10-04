@@ -1,6 +1,6 @@
 {
   "name": "mcp-for-azgaar",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": false,
   "type": "module",
   "description": "MCP server that lets an AI see and edit an Azgaar Fantasy Map Generator map, live, fully offline",

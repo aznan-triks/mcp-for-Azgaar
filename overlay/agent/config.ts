@@ -22,6 +22,9 @@ export interface AgentConfig {
   textMapCols: number; // default size of the text map (for models that cannot see images)
   textMapRows: number;
   textMapMax: number; // largest accepted size, in either direction
+  uiOptionsMax: number; // options of a menu listed per field
+  uiTextMax: number; // characters of dialog text returned
+  menuListMax: number; // actions listed by default
 }
 
 export const DEFAULT_CONFIG: AgentConfig = {
@@ -46,7 +49,10 @@ export const DEFAULT_CONFIG: AgentConfig = {
   defaultRiverFlux: 30,
   textMapCols: 100,
   textMapRows: 40,
-  textMapMax: 200
+  textMapMax: 200,
+  uiOptionsMax: 40,
+  uiTextMax: 1500,
+  menuListMax: 200
 };
 
 export const config: AgentConfig = { ...DEFAULT_CONFIG };

@@ -32,6 +32,10 @@ Azgaar is not stored here. `scripts/azgaar.mjs` downloads a tag/commit and appli
 
 Required patches missing = "not compatible yet" (clear message, nothing replaced). `npm run update` also builds the new version beside the old one and runs `scripts/compat.mjs` before switching. `known-good.json` is the version everything was last tested against.
 
+## Reaching all of Azgaar
+
+Dedicated commands cover precise edits. Everything else goes through Azgaar's own code paths: `menu.ts` runs its action list (`MAP_COMMANDS`) and picture exports, `ui.ts` operates its dialogs and fields like a person, `settings.ts` pins generation settings after validating them with its schema. The server collects file downloads (`captureDownload`) into `exports/`.
+
 ## Adding a command
 
 Add an entry to the command registry in `overlay/agent/commands/` (name, parameter schema, function) and a test. The server discovers it through `FMG_AGENT.describe()`; no server change is needed.

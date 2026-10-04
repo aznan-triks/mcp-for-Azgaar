@@ -2,6 +2,17 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.2.0
+
+**Plain words:** The AI can now do much more than edit borders: it can choose which layers are drawn (for example only the heightmap and the cultures) and export pictures and data to files, set how new maps are generated, run any of Azgaar's own actions, and operate Azgaar's screens like a person, so almost everything Azgaar offers is within its reach.
+
+**Technical:**
+- `map_export`: SVG, PNG, JPEG, PNG tiles, `.map`, JSON (4 kinds), GeoJSON (5), CSV (9), by calling Azgaar's own export code and collecting the browser download in `exports/` (new `exportsDir`, `limits.exportTimeoutMs` in config). `only_layers` / `layer_preset` choose what is drawn; `map_layers` gained `only` and `preset`.
+- `map_menu`: Azgaar's own action list (`MAP_COMMANDS`: editors, overviews, `regenerate*`, charts), run with the interface's confirmation skipped because the undo snapshot is taken first (dropped when nothing changed). Actions that need a file picker or replace the map are refused with a pointer to the right tool.
+- `map_ui`: list/find/get/click/set/close_dialogs/upload on dialogs, the side menu or the whole page, by reference, id, selector or visible text (best match: exact own text, then control label, then shortest partial); `upload` answers file pickers (tried by hand with the Heightmap image converter).
+- `map_options` and `map_file new options`: Azgaar's typed settings, validated by its own schema; values are **pinned** the way its lock icons do, because a new map re-rolls unpinned settings (found by test: asking for 5 states gave 17). `release` forgets pins.
+- Verified on Windows 10: 25 end-to-end tests with a real MCP client cover exports (each family, with the layers on screen), layer presets, regenerate + undo, editors and fields, choosing a template through its dialog, validated and pinned generation settings. Not covered by automated tests: the image converter upload, PNG tiles, the 3D views.
+
 ## 1.1.0
 
 **Plain words:** It now works with any AI program that supports MCP (Cline, Codex, Hermes, Cursor, LM Studio...) and any model, including models that cannot see images: they get the map drawn in characters.

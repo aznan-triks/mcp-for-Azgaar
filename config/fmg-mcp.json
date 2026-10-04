@@ -1,6 +1,7 @@
 {
   "azgaarDist": "upstream/azgaar/dist-electron/renderer",
   "mapsDir": "maps",
+  "exportsDir": "exports",
   "profileDir": ".browser-profile",
   "startup": "autosave",
   "allowEval": false,
@@ -47,7 +48,8 @@
     "zoomMax": 80,
     "cameraMsMax": 5000,
     "mapSizeMin": 100,
-    "mapSizeMax": 8000
+    "mapSizeMax": 8000,
+    "exportTimeoutMs": 120000
   },
   "azgaarPackage": "upstream/azgaar/package.json",
   "autosave": {

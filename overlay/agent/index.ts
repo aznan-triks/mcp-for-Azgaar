@@ -5,11 +5,14 @@ import { type AgentConfig, config, configure } from "./config";
 import { mapToScreen, screenToMap } from "./geometry";
 import { exportMap, importMap } from "./io";
 import { listLayers, setLayers } from "./layers";
+import { exportPicture, menuList, menuRun } from "./menu";
 import { clearAnnotations, drawAnnotations, type OverlayOptions, showSelection } from "./overlay";
 import { camera, cellInfo, list, locate, summary } from "./queries";
 import { createSelection, describeSelection, dropSelections, SELECT_OPTIONS, SHAPES } from "./selection";
+import { getSettings, releaseSettings, setSettings } from "./settings";
 import { textMap } from "./textmap";
 import { AgentError, type CommandResult, type Params } from "./types";
+import { uiClick, uiCloseDialogs, uiGet, uiList, uiSet } from "./ui";
 
 const API_VERSION = 1;
 
@@ -82,6 +85,17 @@ const FMG_AGENT = {
   isReady: () => typeof pack !== "undefined" && Array.isArray(window.mapHistory) && window.mapHistory.length > 0,
   summary,
   textMap,
+  uiList,
+  uiClick,
+  uiSet,
+  uiGet,
+  uiCloseDialogs,
+  menuList,
+  menuRun,
+  exportPicture,
+  getSettings,
+  setSettings,
+  releaseSettings,
   list,
   locate,
   cellInfo,

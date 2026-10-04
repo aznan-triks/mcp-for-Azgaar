@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { basename, extname, join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
 import type { Config } from "./config.ts";
 
@@ -130,6 +131,25 @@ export class MapSession {
     await page.goto(this.urlFor(opts));
     await page.waitForFunction(() => (window as unknown as AgentWindow).FMG_AGENT?.isReady(), null, { timeout: this.cfg.browser.readyTimeoutMs });
     await page.evaluate(cfg => (window as unknown as AgentWindow).FMG_AGENT.configure(cfg), this.cfg.bridge);
+  }
+
+  /** Runs `trigger` (which makes Azgaar start a file download), saves the file in the exports folder and returns where. */
+  async captureDownload(trigger: () => Promise<unknown>, fileName?: string): Promise<{ file: string; bytes: number; suggestedName: string }> {
+    const page = await this.ensure();
+    mkdirSync(this.cfg.exportsDir, { recursive: true });
+    const waiting = page.waitForEvent("download", { timeout: this.cfg.limits.exportTimeoutMs });
+    waiting.catch(() => undefined); // reported below if the trigger itself succeeds but nothing is downloaded
+    await trigger();
+    const download = await waiting.catch(() => {
+      throw new Error("Azgaar did not produce a file (nothing was downloaded). Check the map is loaded, then try again.");
+    });
+    const suggestedName = download.suggestedFilename();
+    const ext = extname(suggestedName);
+    const wanted = (fileName ?? basename(suggestedName, ext)).replace(/[^A-Za-z0-9._ -]/g, "_").replace(/\.\.+/g, ".") || "export";
+    let file = join(this.cfg.exportsDir, `${wanted}${ext}`);
+    if (existsSync(file)) file = join(this.cfg.exportsDir, `${wanted}-${Date.now()}${ext}`);
+    await download.saveAs(file);
+    return { file, bytes: statSync(file).size, suggestedName };
   }
 
   /** Generates a fresh map (reloads the page with new parameters). */

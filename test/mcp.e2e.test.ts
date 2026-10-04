@@ -21,6 +21,7 @@ base.browser.executablePath = process.env.FMG_TEST_CHROMIUM ?? null;
 base.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
 base.map.seed = SEED;
 base.server.port = 0;
+base.exportsDir = join(work, "exports");
 base.allowEval = true;
 base.startup = "autosave";
 base.autosave = { intervalSec: 2 };
@@ -76,7 +77,7 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     const guide = client.getInstructions() ?? "";
     for (const word of ["map_summary", "map_list with name", "ring", "mergeStates", "map_layers", "scope all"]) assert.ok(guide.includes(word), `instructions must mention: ${word}`);
     const names = (await client.listTools()).tools.map(t => t.name);
-    for (const n of ["map_view", "map_summary", "map_locate", "map_list", "map_select", "map_commands", "map_apply", "map_undo", "map_camera", "map_layers", "map_file", "map_status", "map_eval"]) assert.ok(names.includes(n), `missing ${n}`);
+    for (const n of ["map_view", "map_summary", "map_locate", "map_list", "map_select", "map_commands", "map_apply", "map_undo", "map_camera", "map_layers", "map_file", "map_status", "map_export", "map_menu", "map_ui", "map_options", "map_eval"]) assert.ok(names.includes(n), `missing ${n}`);
   });
 
   it("draws the map in characters, with no image, for models that cannot see", async () => {
@@ -335,6 +336,65 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     assert.equal(back.counts.provinces, base.counts.provinces);
   });
 
+  it("exports pictures and data to files, with the layers the AI chose", async () => {
+    const svg = json(await ok("map_export", { format: "svg", name: "t-political" }));
+    assert.ok(existsSync(svg.file) && readFileSync(svg.file, "utf8").includes("<svg"), "svg file");
+    const png = await ok("map_export", { format: "png", only_layers: ["heightmap", "cultures"], name: "t-height-culture" });
+    const info = json({ ...png, content: png.content.filter(p => p.type === "text") });
+    assert.deepEqual(readFileSync(info.file).subarray(1, 4).toString(), "PNG");
+    assert.ok(info.layersOnScreen.includes("heightmap") && info.layersOnScreen.includes("cultures") && !info.layersOnScreen.includes("states"), `layers: ${info.layersOnScreen}`);
+    assert.ok(png.content.some(p => p.type === "image"), "the picture is also returned");
+    const full = json(await ok("map_export", { format: "json-full", name: "t-full" }));
+    assert.ok(JSON.parse(readFileSync(full.file, "utf8")).info, "json export parses");
+    const geo = json(await ok("map_export", { format: "geojson-cells", name: "t-cells" }));
+    assert.equal(JSON.parse(readFileSync(geo.file, "utf8")).type, "FeatureCollection");
+    const csv = json(await ok("map_export", { format: "csv-burgs", name: "t-burgs" }));
+    assert.ok(readFileSync(csv.file, "utf8").split("\n").length > 10, "csv rows");
+    const saved = json(await ok("map_export", { format: "map", name: "t-save" }));
+    assert.ok(readFileSync(saved.file, "utf8").length > 10000, ".map file");
+    await ok("map_layers", { preset: "political" });
+    assert.ok(json(await ok("map_layers")).active.includes("states"), "a preset restores the political layers");
+    assert.ok((await call("map_layers", { preset: "nope" })).isError);
+  });
+
+  it("runs Azgaar's own actions (regenerate, editors) and can undo them", async () => {
+    const found = json(await ok("map_menu", { action: "list", query: "burgs" }));
+    assert.ok(found.commands.some((c: any) => c.id === "regenerateBurgs"));
+    assert.ok((await call("map_menu", { action: "run", id: "newMap" })).isError, "replacing the map is refused here");
+    const names = async () => JSON.stringify(json(await ok("map_list", { kind: "burgs", limit: 8 })));
+    const before = await names();
+    await ok("map_menu", { action: "run", id: "regenerateBurgs" });
+    assert.notEqual(await names(), before, "burgs were regenerated");
+    await ok("map_undo", { action: "undo" });
+    assert.equal(await names(), before, "undo brings the old burgs back");
+    const opened = json(await ok("map_menu", { action: "run", id: "editStatesButton" }));
+    assert.ok(opened.dialogs.length > 0, "an editor dialog opened");
+    const status = json(await ok("map_status"));
+    assert.ok(status.history.undoable.length >= 0);
+  });
+
+  it("operates the interface: list, find, read and set fields, close dialogs", async () => {
+    const list = json(await ok("map_ui", { action: "list", scope: "dialogs" }));
+    assert.ok(list.dialogs.length > 0 && list.controls.length > 0, "the open editor and its controls are listed");
+    const field = list.controls.find((c: any) => c.kind.startsWith("input:") && c.id && !["checkbox", "radio", "button", "file"].includes(c.kind.slice(6)));
+    if (field) {
+      const same = json(await ok("map_ui", { action: "get", id: field.id }));
+      assert.equal(same.control.id, field.id);
+    }
+    const missing = await call("map_ui", { action: "click", text: "no such thing on screen xyz" });
+    assert.ok(missing.isError && /nothing on screen/.test(missing.content[0].text ?? ""));
+    const closed = json(await ok("map_ui", { action: "close_dialogs" }));
+    assert.equal(closed.dialogs.length, 0);
+    const sel = json(await ok("map_ui", { action: "find", scope: "page", query: "points", hidden: true }));
+    assert.ok(sel.total > 0, "page controls can be found");
+    await ok("map_menu", { action: "run", id: "selectHeightmap" });
+    await ok("map_ui", { action: "click", text: "Archipelago" }); // a tile found by its visible name
+    await ok("map_ui", { action: "click", text: "Select" });
+    assert.equal(json(await ok("map_options", { action: "get" })).generation.template, "archipelago", "the template chosen in the dialog is used");
+    const upload = await call("map_ui", { action: "upload", id: "convertImageLoad", path: join(work, "missing.png") });
+    assert.ok(upload.isError && /existing file/.test(upload.content[0].text ?? ""), "a missing file is refused");
+  });
+
   it("a restarted server reloads the autosaved map", async () => {
     const before = json(await ok("map_summary"));
     await client.close();
@@ -354,5 +414,25 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     }
     assert.ok(after, "autosaved map was not restored");
     assert.deepEqual(after.states.map((s: any) => [s.id, s.cells]), before.states.map((s: any) => [s.id, s.cells]));
+  });
+  it("generation settings are read, validated, and used for a new map", async () => {
+    const got = json(await ok("map_options", { action: "get" }));
+    assert.ok(got.generation.states.limit > 0 && got.choices.templates.length > 3 && got.choices.cultureSets.length > 3);
+    const refused = await call("map_options", { action: "set", values: { states: { limit: -4 }, template: 42 } });
+    assert.ok(refused.isError && /nothing changed/.test(refused.content[0].text ?? ""), "a bad value is refused");
+    assert.equal(json(await ok("map_options", { action: "get" })).generation.states.limit, got.generation.states.limit, "and nothing changed");
+    const made = json(await ok("map_file", { action: "new", seed: "333", options: { states: { limit: 5 } } }));
+    assert.ok(made.counts.states <= 5 && made.counts.states >= 2, `states asked 5, got ${made.counts.states}`);
+    const after = json(await ok("map_options", { action: "get" }));
+    assert.equal(after.generation.states.limit, 5, "the setting is kept");
+    assert.equal(after.pinned.statesNumber, 5, "and pinned, so the next map does not re-roll it");
+    const mapSet = json(await ok("map_options", { action: "set", section: "map", values: { units: { distance: { unit: "mi" } }, lore: { name: "Test Realm" } } }));
+    assert.equal(mapSet.pinnedForNextMap["lore.name"], "Test Realm");
+    const named = json(await ok("map_file", { action: "new", seed: "333" }));
+    assert.equal(named.counts.states <= 5, true, "the pinned state count is used again");
+    assert.equal(json(await ok("map_options", { action: "get", section: "map" })).map.lore.name, "Test Realm");
+    const released = json(await ok("map_options", { action: "release" }));
+    assert.deepEqual(released.pinned, {}, "everything is random again");
+    assert.ok((await call("map_options", { action: "set", values: { app: 1 } })).isError, "unknown keys are refused");
   });
 });

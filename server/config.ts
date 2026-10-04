@@ -7,6 +7,7 @@ const schema = z.object({
   azgaarDist: z.string(),
   azgaarPackage: z.string(),
   mapsDir: z.string(),
+  exportsDir: z.string(),
   profileDir: z.string(),
   startup: z.enum(["autosave", "new"]),
   allowEval: z.boolean(),
@@ -25,7 +26,7 @@ const schema = z.object({
   history: z.object({ maxEntries: z.number().int().min(1) }),
   autosave: z.object({ intervalSec: z.number().min(0) }), // 0 turns the periodic save off (saves after each edit remain)
   view: z.object({ format: z.enum(["png", "jpeg"]), jpegQuality: z.number().int().min(1).max(100), settleMs: z.number().int().min(0), maxImageBytes: z.number().int().min(10000), textOnly: z.boolean().default(false) }),
-  limits: z.object({ listMax: z.number().int(), zoomMin: z.number(), zoomMax: z.number(), cameraMsMax: z.number().int(), mapSizeMin: z.number().int(), mapSizeMax: z.number().int() }),
+  limits: z.object({ listMax: z.number().int(), zoomMin: z.number(), zoomMax: z.number(), cameraMsMax: z.number().int(), mapSizeMin: z.number().int(), mapSizeMax: z.number().int(), exportTimeoutMs: z.number().int().min(1000) }),
   bridge: z.record(z.string(), z.unknown())
 });
 
@@ -55,5 +56,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const allowEval = flag(env.FMG_ALLOW_EVAL);
   if (allowEval !== undefined) cfg.allowEval = allowEval;
   const fromRoot = (p: string) => (isAbsolute(p) ? p : join(PROJECT_ROOT, p));
-  return { ...cfg, azgaarDist: fromRoot(cfg.azgaarDist), azgaarPackage: fromRoot(cfg.azgaarPackage), mapsDir: fromRoot(cfg.mapsDir), profileDir: fromRoot(cfg.profileDir), root: PROJECT_ROOT };
+  return { ...cfg, azgaarDist: fromRoot(cfg.azgaarDist), azgaarPackage: fromRoot(cfg.azgaarPackage), mapsDir: fromRoot(cfg.mapsDir), exportsDir: fromRoot(cfg.exportsDir), profileDir: fromRoot(cfg.profileDir), root: PROJECT_ROOT };
 }

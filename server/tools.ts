@@ -7,9 +7,10 @@ import type { Config } from "./config.ts";
 import type { Autosave } from "./autosave.ts";
 import type { History } from "./history.ts";
 import type { Exclusive } from "./queue.ts";
+import { registerExtraTools } from "./tools-extra.ts";
 
-type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
-interface ToolResult {
+export type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+export interface ToolResult {
   [key: string]: unknown;
   content: Content[];
   isError?: boolean;
@@ -25,7 +26,8 @@ Extending a state: map_select shape ring {state, depth} (cells just outside it),
 Every map_apply is undoable with map_undo, and a failed edit restores the map by itself. Prefer small, verifiable steps; report what changed using the numbers returned and the warnings.
 Edits to relief, cultures, religions, provinces or rivers are only visible when their layer is on: use map_layers (e.g. show heightmap or relief to check terrain).
 Terrain edits keep coasts and lakes frozen by default (scope land): fast and nothing else changes. Use scope all to create/remove land or lakes; that rebuilds the map, renumbers cells and may shift coastal borders by a cell elsewhere. Open sea is not selectable: shapeCone / shapeRidge can raise an island there.
-Call map_commands once to learn the available edit commands and their exact parameters.`;
+Call map_commands once to learn the available edit commands and their exact parameters.
+Everything else in Azgaar is reachable too: map_export saves pictures and data (svg, png, jpeg, json, geojson, csv, .map; use only_layers/layer_preset to choose what is drawn); map_options and map_file new set how a new map is generated; map_menu runs Azgaar's own actions (open any editor, regenerate rivers/burgs/cultures...); map_ui then operates the open dialogs and any button or field of the interface.`;
 
 export function registerTools(server: McpServer, cfg: Config, session: MapSession, history: History, exclusive: Exclusive, saver: Autosave): void {
   // One request at a time (shared with the background autosave): the page and the history are shared state.
@@ -197,11 +199,11 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
       title: "Show / hide map layers",
       description:
         "Layers are what the person sees: states, borders, provinces, cultures, religions, biomes, heightmap, relief, temperature, rivers, routes, burgIcons, labels, cells, grid... Call with no arguments to list active and available layers; pass show and/or hide (arrays of layer ids) to change them. Edits to relief, cultures, religions or provinces are only visible when their layer is on.",
-      inputSchema: { show: z.array(z.string()).optional(), hide: z.array(z.string()).optional() }
+      inputSchema: { show: z.array(z.string()).optional(), hide: z.array(z.string()).optional(), only: z.array(z.string()).optional(), preset: z.string().optional() }
     },
-    guarded(async ({ show, hide }) => {
-      if (!show?.length && !hide?.length) return { content: [text(await session.call("layers"))] };
-      return { content: [text(await session.call("setLayers", { show, hide }))] };
+    guarded(async ({ show, hide, only, preset }) => {
+      if (!show?.length && !hide?.length && !only?.length && !preset) return { content: [text(await session.call("layers"))] };
+      return { content: [text(await session.call("setLayers", { show, hide, only, preset }))] };
     })
   );
 
@@ -220,13 +222,14 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     {
       title: "Save / load / new map",
       description:
-        "save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped). list: saved maps. new: generate a fresh random map (optionally with seed, width, height); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.",
-      inputSchema: { action: z.enum(["save", "load", "list", "new"]), name: z.string().optional(), seed: z.string().optional(), width: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional(), height: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional() }
+        "save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped). list: saved maps. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:\"archipelago\"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.",
+      inputSchema: { action: z.enum(["save", "load", "list", "new"]), options: z.record(z.string(), z.unknown()).optional(), name: z.string().optional(), seed: z.string().optional(), width: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional(), height: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional() }
     },
-    guarded(async ({ action, name, seed, width, height }) => {
+    guarded(async ({ action, name, seed, width, height, options }) => {
       mkdirSync(cfg.mapsDir, { recursive: true });
       if (action === "list") return { content: [text({ maps: readdirSync(cfg.mapsDir).filter(f => f.endsWith(".map")).map(f => f.replace(/\.map$/, "")) })] };
       if (action === "new") {
+        if (options) await session.call("setSettings", { section: "generation", values: options }); // validated by Azgaar; kept for the generation below
         await session.openNew({ seed, width, height });
         history.reset();
         await autosave();
@@ -273,4 +276,6 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
       })
     );
   }
+
+  registerExtraTools({ server, cfg, session, history, guarded, text, viewContent, settle, autosave });
 }

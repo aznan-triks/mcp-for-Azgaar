@@ -57,6 +57,13 @@ export class History {
     while (this.past.length > this.max) this.forget(this.past.shift() as Entry);
   }
 
+  /** True when the map now is the same as the snapshot taken before the change (nothing happened). */
+  async lastSnapshotMatchesCurrent(): Promise<boolean> {
+    const last = this.past.at(-1);
+    if (!last) return false;
+    return readFileSync(last.file, "utf8") === (await this.session.call<string>("exportMap"));
+  }
+
   /** The change failed or changed nothing: drop the snapshot taken for it. */
   dropLast(): void {
     const last = this.past.pop();

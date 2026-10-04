@@ -100,13 +100,26 @@ Available tools:
 - `map_select`: Selects an area of the map (a state, a border strip, a rectangle, around a city...) and shows it in red before anything changes.
 - `map_apply`: Applies a change to a selection or an entity: move borders, found states, provinces, cultures or religions, raise or lower land, move labels, restyle emblems.
 - `map_undo`: Reverts previous modifications.
-- `map_list`: Lists entities (states, burgs, rivers, markers).
+- `map_list`: Lists entities (states, provinces, cultures, religions, cities, markers, routes, labels).
 - `map_locate`: Finds coordinates and details for map features.
 - `map_camera`: Pans and zooms the browser viewport.
-- `map_layers`: Toggles map visual layers (heightmap, routes, borders).
-- `map_file`: Saves, loads, and exports map files.
+- `map_layers`: Shows or hides map layers, applies one of Azgaar's layer presets (political, cultural, heightmap, physical...), or shows exactly the layers you name.
+- `map_file`: Saves, loads, lists and generates new maps (with seed, size and generation settings).
 - `map_commands`: Returns available editing actions and parameters.
 - `map_status`: Displays engine status and connection health.
+- `map_export`: Exports to files, exactly like Azgaar's Export menu: pictures (SVG, PNG, JPEG, PNG tiles), data (JSON, GeoJSON, CSV) and the `.map` file. The AI can first choose what is drawn ("only the heightmap and cultures"), then export. Files land in the `exports` folder.
+- `map_options`: Reads and sets how the next map is generated (number of states, cultures, religions, heightmap template, climate, units, calendar, map name...), checked by Azgaar's own rules.
+- `map_menu`: Runs Azgaar's own actions: open any editor or overview, regenerate rivers, cities, cultures, religions, states, markers, military, economy..., open charts.
+- `map_ui`: Operates Azgaar's screen like a person: dialogs, the side menu, any button, field or drop-down, even file pickers (for example importing a heightmap picture).
+
+### Can the AI use 100% of Azgaar?
+
+Practically yes, in three layers:
+1. **Dedicated commands** (`map_apply`, `map_select`) for the map edits that need precision: borders, states, provinces, cultures, religions, cities, rivers, routes, markers, labels, emblems, terrain.
+2. **Azgaar's own action menu and its screen** (`map_menu` + `map_ui`) for everything else the interface offers: every editor and overview, every regenerate button, styles, notes, units, biomes, diplomacy, zones, military, goods and markets, the image converter...
+3. **Exports and settings** (`map_export`, `map_options`) for getting data and pictures out, and for generating maps the way you want.
+
+Honest limits: free-hand drawing on the map with the mouse (brush strokes) is replaced by the terrain and selection commands; the 3D views and Azgaar's online features (its built-in chat assistant, cloud saves) are not supported; operating dialogs through `map_ui` is only as reliable as the dialog itself. For anything left, `allowEval` in `config/fmg-mcp.json` lets an AI run its own code inside the map page (off by default, advanced).
 
 ## For Developers
 

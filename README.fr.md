@@ -100,13 +100,26 @@ Outils MCP disponibles :
 - `map_select` : Sélection d'une zone de la carte (un État, une bande de frontière, un rectangle, autour d'une ville...), affichée en rouge avant toute modification.
 - `map_apply` : Applique un changement à une sélection ou une entité : déplacer des frontières, fonder des États, provinces, cultures ou religions, monter ou baisser le relief, déplacer des étiquettes, changer des emblèmes.
 - `map_undo` : Annulation de la dernière modification.
-- `map_list` : Liste des entités (états, villes, fleuves, marqueurs).
+- `map_list` : Liste des entités (États, provinces, cultures, religions, villes, marqueurs, routes, étiquettes).
 - `map_locate` : Coordonnées et détails géographiques d'un élément précis.
 - `map_camera` : Déplacement et zoom de la vue du navigateur.
-- `map_layers` : Activation et désactivation des calques visuels (relief, routes, frontières).
-- `map_file` : Sauvegarde, chargement et export de fichiers de carte.
+- `map_layers` : Affiche ou masque des calques, applique un préréglage de calques d'Azgaar (politique, culturelle, relief, physique...), ou affiche exactement les calques demandés.
+- `map_file` : Sauvegarde, chargement, liste et génération de nouvelles cartes (avec graine, taille et réglages de génération).
 - `map_commands` : Découverte des actions de modification et de leurs paramètres.
 - `map_status` : État du moteur et de la connexion.
+- `map_export` : Exporte vers des fichiers, exactement comme le menu Export d'Azgaar : images (SVG, PNG, JPEG, tuiles PNG), données (JSON, GeoJSON, CSV) et fichier `.map`. L'IA peut d'abord choisir ce qui est dessiné (« seulement le relief et les cultures »), puis exporter. Les fichiers arrivent dans le dossier `exports`.
+- `map_options` : Lit et règle la façon dont la prochaine carte est générée (nombre d'États, cultures, religions, modèle de relief, climat, unités, calendrier, nom de la carte...), contrôlé par les règles d'Azgaar.
+- `map_menu` : Lance les actions propres à Azgaar : ouvrir n'importe quel éditeur ou aperçu, régénérer fleuves, villes, cultures, religions, États, marqueurs, armées, économie..., ouvrir les graphiques.
+- `map_ui` : Manipule l'écran d'Azgaar comme une personne : fenêtres, menu latéral, boutons, champs, listes, même les sélecteurs de fichier (par exemple importer une image de relief).
+
+### L'IA peut-elle utiliser 100 % d'Azgaar ?
+
+En pratique oui, sur trois niveaux :
+1. **Commandes dédiées** (`map_apply`, `map_select`) pour les modifications précises : frontières, États, provinces, cultures, religions, villes, fleuves, routes, marqueurs, étiquettes, emblèmes, relief.
+2. **Le menu d'actions et l'écran d'Azgaar** (`map_menu` + `map_ui`) pour tout le reste de l'interface : tous les éditeurs et aperçus, tous les boutons de régénération, styles, notes, unités, biomes, diplomatie, zones, armées, marchandises et marchés, convertisseur d'image...
+3. **Exports et réglages** (`map_export`, `map_options`) pour sortir données et images, et générer des cartes à votre goût.
+
+Limites honnêtes : le dessin à main levée à la souris (coups de pinceau) est remplacé par les commandes de relief et de sélection ; les vues 3D et les fonctions en ligne d'Azgaar (son assistant de discussion, les sauvegardes dans le nuage) ne sont pas prises en charge ; manipuler une fenêtre avec `map_ui` n'est aussi fiable que la fenêtre elle-même. Pour le reste, `allowEval` dans `config/fmg-mcp.json` permet à une IA d'exécuter son propre code dans la page de la carte (désactivé par défaut, avancé).
 
 ## Pour les développeurs
 

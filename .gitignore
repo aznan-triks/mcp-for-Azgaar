@@ -5,3 +5,4 @@ maps/
 .test-tmp/
 .env
 *.local
+exports/
