@@ -2,6 +2,16 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.2.3
+
+**Plain words:** The documentation is now complete: every tool, command, setting and script is explained, there are 16+ ready-made recipes, a troubleshooting guide, a FAQ, security and uninstall pages, all in English and French, and a test fails if anything is ever left undocumented.
+
+**Technical:**
+- New pages: `docs/TOOLS.md` and `docs/COMMANDS.md` (generated from the running server by `npm run docs`, checked for staleness by `npm run check`), `CONFIGURATION`, `SECURITY`, `UNINSTALL`, `USAGE-EXAMPLES`, `TROUBLESHOOTING`, `FAQ`, each also in `docs/fr/`.
+- `test/docs.test.mjs` fails when a setting of `config/fmg-mcp.json`, an environment variable, a bridge setting, an npm script, a tool or an export format has no explanation, when a relative link is broken, when a page is not linked from the README, or when a French page is missing or differs in structure.
+- Drafted by Antigravity (Gemini 3.8 Flash, medium) and translated the same way, then fact-checked by a second Antigravity pass (high effort, read-only). The 19 discrepancies it found were fixed: a quoted error message that did not exist, a wrong seed type, an environment variable that was a page global, undo history described as in memory (it is on disk), claims about untested systems (a "Tested on" note now heads each page), an `export` command that fails on Windows, and the `npm run build:azgaar` hint in two error messages (now `npm run setup`). `npm run doctor` now removes its own throw-away browser profile.
+- Not verified: macOS and Linux instructions in the new pages (marked untested).
+
 ## 1.2.2
 
 **Plain words:** The README now explains that the map window is visible by default (you watch the AI work live) and how to hide it.

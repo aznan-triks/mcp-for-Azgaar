@@ -127,6 +127,17 @@ Practically yes, in three layers:
 
 Honest limits: free-hand drawing on the map with the mouse (brush strokes) is replaced by the terrain and selection commands; the 3D views and Azgaar's online features (its built-in chat assistant, cloud saves) are not supported; operating dialogs through `map_ui` is only as reliable as the dialog itself. For anything left, `allowEval` in `config/fmg-mcp.json` lets an AI run its own code inside the map page (off by default, advanced).
 
+## Documentation
+
+- [Usage examples](docs/USAGE-EXAMPLES.md): 16+ recipes with the exact sentences to say to the AI.
+- [Troubleshooting](docs/TROUBLESHOOTING.md): every known problem, with the fix.
+- [FAQ](docs/FAQ.md): quick answers.
+- [Configuration](docs/CONFIGURATION.md): every setting, environment variable and command-line option.
+- [Tools reference](docs/TOOLS.md) and [Edit commands](docs/COMMANDS.md): every tool and command with its parameters (generated from the code, always exact).
+- [Security and privacy](docs/SECURITY.md) and [Uninstall](docs/UNINSTALL.md).
+- [Architecture](docs/ARCHITECTURE.md) and [Changelog](CHANGELOG.md): for developers.
+- En français : [docs/fr/](docs/fr/README.md).
+
 ## For Developers
 
 Run tests with:

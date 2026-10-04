@@ -1,6 +1,6 @@
 // `npm run doctor`: checks everything the server needs and says what to fix. Opens a hidden browser to prove it works.
 //   --headed   show the browser window during the check
-import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isSupportedNode, parseNode, PREFERRED_NODE_MAJOR, unsupportedNodeMessage } from "./node-version.mjs";
@@ -76,6 +76,7 @@ export async function doctor({ headed = false } = {}) {
   } finally {
     await session.close();
     await web.close();
+    rmSync(cfg.profileDir, { recursive: true, force: true }); // the self-test's own throw-away profile
   }
 
   const desktop = desktopConfigPath();

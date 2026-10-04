@@ -83,7 +83,7 @@ if (failed) process.exit(1);
 
 const chromium = process.env.FMG_TEST_CHROMIUM;
 if (!existsSync(join(azgaar, "dist-electron", "renderer", "index.html"))) {
-  console.error("\nAzgaar is not built: run npm run build:azgaar before the tests.");
+  console.error("\nAzgaar is not built: run npm run setup before the tests.");
   process.exit(1);
 }
 const env = chromium ? { FMG_TEST_CHROMIUM: chromium, FMG_TEST_ARGS: process.env.FMG_TEST_ARGS ?? "" } : { FMG_TEST_CHANNEL: process.env.FMG_TEST_CHANNEL ?? "chrome" };
@@ -96,6 +96,8 @@ run("Tests: screenshot size guard", process.execPath, ["--test", "test/screensho
 run("Tests: window closed and reopened", process.execPath, ["--test", "test/session.reopen.test.ts"], root, env);
 run("Tests: doctor", process.execPath, ["--test", "test/doctor.test.mjs"], root, env);
 run("Tests: MCP end to end (real client, server, browser)", process.execPath, ["--test", "test/mcp.e2e.test.ts"], root, env);
+run("Tests: documentation complete", process.execPath, ["--test", "test/docs.test.mjs"], root, env);
+run("Docs: generated reference pages up to date", process.execPath, ["scripts/gen-docs.mjs", "--check"], root, env);
 
 console.log(failed ? "\nCHECK FAILED" : "\nCHECK PASSED");
 console.log("Not covered: Windows, Claude Desktop / Claude Code rendering of images. A visible window is covered by: FMG_TEST_HEADED=1 FMG_TEST_CHANNEL=chrome (needs a display, e.g. xvfb-run).");

@@ -127,6 +127,14 @@ En pratique oui, sur trois niveaux :
 
 Limites honnêtes : le dessin à main levée à la souris (coups de pinceau) est remplacé par les commandes de relief et de sélection ; les vues 3D et les fonctions en ligne d'Azgaar (son assistant de discussion, les sauvegardes dans le nuage) ne sont pas prises en charge ; manipuler une fenêtre avec `map_ui` n'est aussi fiable que la fenêtre elle-même. Pour le reste, `allowEval` dans `config/fmg-mcp.json` permet à une IA d'exécuter son propre code dans la page de la carte (désactivé par défaut, avancé).
 
+## Documentation
+
+Les pages détaillées existent en français dans [docs/fr/](docs/fr/README.md) :
+
+- [Exemples d'utilisation](docs/fr/USAGE-EXAMPLES.md) : plus de 16 recettes avec les phrases exactes à dire à l'IA.
+- [Dépannage](docs/fr/TROUBLESHOOTING.md), [FAQ](docs/fr/FAQ.md), [Configuration](docs/fr/CONFIGURATION.md), [Sécurité](docs/fr/SECURITY.md), [Désinstallation](docs/fr/UNINSTALL.md).
+- Références techniques (en anglais, générées depuis le code) : [outils](docs/TOOLS.md) et [commandes](docs/COMMANDS.md).
+
 ## Pour les développeurs
 
 Exécutez la suite de tests avec :
