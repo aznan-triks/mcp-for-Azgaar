@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
 import type { Config } from "./config.ts";
@@ -12,6 +12,40 @@ export interface OpenOptions {
 type AgentWindow = { FMG_AGENT: Record<string, (...args: unknown[]) => unknown> };
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]); // const-ok: loopback host names are protocol constants
+
+const PROFILE_LOCK_FILES = ["SingletonLock", "SingletonCookie", "SingletonSocket"]; // const-ok: file names fixed by Chromium
+
+/**
+ * A browser killed brutally leaves its profile lock behind and the next launch refuses to start (D-007).
+ * On Linux/macOS the lock is a link named "<host>-<pid>": when that process is gone the lock is stale and removed.
+ * On Windows the lock is held open by a live process, so nothing is removed (see profileLockHint).
+ */
+export function releaseStaleProfileLock(profileDir: string): boolean {
+  const lock = join(profileDir, PROFILE_LOCK_FILES[0] as string);
+  let target: string;
+  try {
+    if (!lstatSync(lock).isSymbolicLink()) return false;
+    target = readlinkSync(lock);
+  } catch {
+    return false; // no lock, or not a link (Windows): nothing to judge
+  }
+  const pid = Number(/-(\d+)$/.exec(target)?.[1]);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0); // signal 0 = existence check only
+    return false; // the owner is alive: the lock is real
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EPERM") return false; // alive, owned by someone else
+  }
+  for (const name of PROFILE_LOCK_FILES) rmSync(join(profileDir, name), { force: true });
+  return true;
+}
+
+/** Turns Chromium's cryptic "ProcessSingleton" failure into something a person can act on. */
+export function profileLockHint(profileDir: string, message: string): string | null {
+  if (!/ProcessSingleton|SingletonLock|profile.*(in use|locked)/i.test(message)) return null;
+  return `The browser profile (${profileDir}) is used by another browser window or by a browser left running in the background after a crash. Close that window or end the leftover Chrome/Edge process in the task manager, then retry. To run two servers at once, give each its own FMG_PROFILE_DIR.`;
+}
 
 /** Owns the visible browser window that shows the map and runs the in-page bridge. */
 export class MapSession {
@@ -56,10 +90,17 @@ export class MapSession {
   private async launchContext(): Promise<BrowserContext> {
     const { browser } = this.cfg;
     mkdirSync(this.cfg.profileDir, { recursive: true });
+    if (releaseStaleProfileLock(this.cfg.profileDir)) this.startupWarnings.push("A stale browser profile lock (left by a crashed browser) was removed.");
     const base = { headless: browser.headless, viewport: browser.viewport, deviceScaleFactor: 1, serviceWorkers: "block" as const, args: browser.args };
     if (browser.executablePath) {
       this.usedChannel = null;
-      return await chromium.launchPersistentContext(this.cfg.profileDir, { ...base, executablePath: browser.executablePath });
+      try {
+        return await chromium.launchPersistentContext(this.cfg.profileDir, { ...base, executablePath: browser.executablePath });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const hint = profileLockHint(this.cfg.profileDir, message);
+        throw hint ? new Error(`${hint}\n(original error: ${message.split("\n")[0]})`) : err;
+      }
     }
     const channels = [browser.channel, ...browser.fallbackChannels].filter((c): c is string => Boolean(c));
     const notFound: string[] = [];
@@ -70,7 +111,10 @@ export class MapSession {
         return context;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        if (!/is not found|Executable doesn't exist|distribution/i.test(message)) throw err; // a real failure (locked profile, ...): do not mask it
+        if (!/is not found|Executable doesn't exist|distribution/i.test(message)) {
+          const hint = profileLockHint(this.cfg.profileDir, message);
+          throw hint ? new Error(`${hint}\n(original error: ${message.split("\n")[0]})`) : err; // a real failure: do not mask it
+        }
         notFound.push(channel);
       }
     }

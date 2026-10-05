@@ -135,13 +135,14 @@ Zoom/pan the view (what the person sees). x,y = map units to centre on (default:
 
 ## map_file
 
-save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped). list: saved maps with path, size and modification date, newest first. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:"archipelago"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.
+save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped), or with the .map file at an absolute `path` anywhere on this computer (e.g. a notes vault). list: saved maps with path, size and modification date, newest first. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:"archipelago"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
 | `action` | one of: `save`, `load`, `list`, `new` | yes |  |
 | `options` | object | no |  |
 | `name` | string | no |  |
+| `path` | string | no |  |
 | `seed` | string | no |  |
 | `width` | integer (min 100, max 8000) | no |  |
 | `height` | integer (min 100, max 8000) | no |  |

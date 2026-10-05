@@ -2,6 +2,16 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.2.5
+
+**Plain words:** Crashed browsers no longer lock you out on the next launch, and the AI can now load maps from anywhere on your computer by their absolute file path.
+
+**Technical:**
+- Stale profile lock handling: on Linux/macOS, stale process lock links left after crashes are automatically removed at launch; on Windows, clear guidance is provided to close leftover background processes.
+- `map_file load` accepts an absolute `path` to load `.map` files from external folders (e.g. notes vaults).
+- Generated documentation updated (`docs/TOOLS.md`, `docs/COMMANDS.md`).
+- Verified via `npm run check`.
+
 ## 1.2.4
 
 **Plain words:** Your selection now survives undo and redo, the AI is warned when the map did not apply the zoom it asked for, saved maps can be told apart by size and date, and one call can frame the whole map before a screenshot.

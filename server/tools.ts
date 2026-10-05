@@ -1,5 +1,5 @@
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { cleanError, type MapSession } from "./browser.ts";
@@ -229,10 +229,10 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     {
       title: "Save / load / new map",
       description:
-        "save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped). list: saved maps with path, size and modification date, newest first. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:\"archipelago\"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.",
-      inputSchema: { action: z.enum(["save", "load", "list", "new"]), options: z.record(z.string(), z.unknown()).optional(), name: z.string().optional(), seed: z.string().optional(), width: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional(), height: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional() }
+        "save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped), or with the .map file at an absolute `path` anywhere on this computer (e.g. a notes vault). list: saved maps with path, size and modification date, newest first. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:\"archipelago\"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.",
+      inputSchema: { action: z.enum(["save", "load", "list", "new"]), options: z.record(z.string(), z.unknown()).optional(), name: z.string().optional(), path: z.string().optional(), seed: z.string().optional(), width: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional(), height: z.number().int().min(cfg.limits.mapSizeMin).max(cfg.limits.mapSizeMax).optional() }
     },
-    guarded(async ({ action, name, seed, width, height, options }) => {
+    guarded(async ({ action, name, path, seed, width, height, options }) => {
       mkdirSync(cfg.mapsDir, { recursive: true });
       if (action === "list") return { content: [text({ maps: readdirSync(cfg.mapsDir).filter(f => f.endsWith(".map")).map(f => { const info = statSync(join(cfg.mapsDir, f)); return { name: f.replace(/\.map$/, ""), path: join(cfg.mapsDir, f), sizeBytes: info.size, modified: info.mtime.toISOString() }; }).sort((a, b) => b.modified.localeCompare(a.modified)) })] };
       if (action === "new") {
@@ -242,8 +242,12 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
         await autosave();
         return { content: [text(await session.call("summary"))] };
       }
-      if (!name) throw new Error(`map_file ${action}: "name" is required`);
-      const file = join(cfg.mapsDir, `${safeName(name)}.map`);
+      if (path !== undefined) {
+        if (action !== "load") throw new Error(`map_file ${action}: "path" only works with load (save writes to maps/<name>.map)`);
+        if (!isAbsolute(path) || !/\.map$/i.test(path)) throw new Error('map_file load: "path" must be an absolute path to a .map file');
+      } else if (!name) throw new Error(`map_file ${action}: "name" is required`);
+      const file = path ?? join(cfg.mapsDir, `${safeName(name as string)}.map`);
+      name ??= file;
       if (action === "save") {
         writeFileSync(file, await session.call<string>("exportMap"));
         return { content: [text({ saved: file })] };
