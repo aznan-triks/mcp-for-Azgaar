@@ -133,7 +133,9 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
   });
 
   it("undo and redo restore exact figures", async () => {
-    await ok("map_undo", { action: "undo" });
+    const res = json(await ok("map_undo", { action: "undo" }));
+    assert.ok(res.rescueSnapshot?.includes("rescue-before-undo.map"), "rescue snapshot reported in undo response");
+    assert.ok(existsSync(join(mapsDir, "rescue-before-undo.map")), "rescue snapshot written to mapsDir");
     const undone = json(await ok("map_summary"));
     assert.equal(cells(undone, gazd), cells(baseline, gazd));
     assert.equal(cells(undone, khuzd), cells(baseline, khuzd));
@@ -373,6 +375,14 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     assert.deepEqual(globe.saved.map((x: any) => x.view), ["west", "east"]);
     assert.ok(globe.saved.every((x: any) => /\.webp$/.test(x.file) && x.bytes > 100));
     assert.ok(globe.globe.mapLongitudeDegrees > 0 && globe.globe.mapPx.width > 0, "the globe reports how the map sits on the planet");
+    const diptRes = await ok("map_3d", { mode: "globe", hemispheres: "diptych", texture_resolution: 1024, name: "e2e 3d diptych" });
+    const dipt = json(diptRes);
+    assert.equal(dipt.saved.length, 1);
+    assert.equal(dipt.saved[0].view, "diptych");
+    assert.ok(dipt.saved[0].widthPx > dipt.saved[0].heightPx, "diptych is a wide composite plate");
+    assert.ok(dipt.saved[0].bytes > 10000, "diptych image has content");
+    assert.ok(existsSync(dipt.saved[0].file), "diptych file was written");
+    assert.ok(diptRes.content.some((p: any) => p.type === "image" && p.data?.length > 1000), "inline image returned for diptych");
     const sat = await call("map_3d", { mode: "relief", preset: "satellite", texture_resolution: 1024, name: "e2e 3d sat" });
     assert.ok(!sat.isError, String(sat.content[0]?.text));
     assert.ok((await call("map_3d", { mode: "globe", preset: "satellite" })).isError, "satellite on a globe is refused");

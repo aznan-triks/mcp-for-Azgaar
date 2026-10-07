@@ -13,7 +13,7 @@ import { getSettings, releaseSettings, setSettings } from "./settings";
 import { textMap } from "./textmap";
 import { AgentError, type CommandResult, type Params } from "./types";
 import { uiClick, uiCloseDialogs, uiGet, uiList, uiSet } from "./ui";
-import { capture3d, close3d, globeInfo, is3dOpen, open3d, setCleanMode, view3d } from "./view3d";
+import { capture3d, captureDiptych, close3d, globeInfo, is3dOpen, open3d, setCleanMode, view3d } from "./view3d";
 
 const API_VERSION = 1;
 
@@ -23,6 +23,7 @@ let lastFailureLeftMapDirty = false;
 async function apply(name: string, params: Params): Promise<CommandResult> {
   lastFailureLeftMapDirty = false;
   try {
+    uiCloseDialogs();
     const result = await runCommand(name, params);
     showSelection(null); // the previewed area has just changed colour: hide the red preview
     return result;
@@ -118,6 +119,7 @@ const FMG_AGENT = {
   open3d,
   view3d,
   capture3d,
+  captureDiptych,
   close3d,
   is3dOpen,
   globeInfo,

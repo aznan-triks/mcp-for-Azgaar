@@ -2,6 +2,7 @@ import { viewport } from "@/components/viewport";
 import { getLabelsIndex } from "@/renderers/labels/label-data";
 import { config } from "./config";
 import { cellAt, mapSize, mapToScreen, round, screenToMap, visibleBounds } from "./geometry";
+import { parseSpatial, pointsOfEntry, referencePoints, SPATIAL_KINDS, testEntry } from "./spatial";
 import { AgentError, type Params } from "./types";
 
 /** Recomputes derived state figures (cells, area, burgs, neighbours) so that answers are never stale. */
@@ -123,7 +124,8 @@ export function list(
   kind: string,
   filterState: number | undefined,
   limit: number | undefined,
-  nameContains?: string
+  nameContains?: string,
+  spatial?: unknown
 ): Record<string, unknown> {
   const max = limit ?? config.listLimit;
   const alive = <T extends { i: number; removed?: boolean }>(items: T[]): T[] => items.filter(e => e.i && !e.removed);
@@ -209,5 +211,31 @@ export function list(
         .includes(needle)
     );
   }
-  return { kind, total: rows.length, shown: Math.min(rows.length, max), rows: rows.slice(0, max) };
+  if (spatial === undefined)
+    return { kind, total: rows.length, shown: Math.min(rows.length, max), rows: rows.slice(0, max) };
+
+  if (!(SPATIAL_KINDS as readonly string[]).includes(kind))
+    throw new AgentError(
+      `list: ${kind} have no place on the map, so spatial filters do not apply. Use one of: ${SPATIAL_KINDS.join(", ")}`
+    );
+  const filter = parseSpatial(spatial);
+  const reference = filter.near ? referencePoints(filter.near) : null;
+  // an entry is never listed as being near itself
+  const selfId = kind === "burgs" ? filter.near?.burg : kind === "rivers" ? filter.near?.river : undefined;
+  const scale = options.map.units.distance.scale;
+  const hits: { row: Record<string, unknown>; distance: number | null; side: string | null }[] = [];
+  for (const row of rows) {
+    if (selfId !== undefined && row.id === selfId) continue;
+    const hit = testEntry(filter, reference, scale, pointsOfEntry(kind, row));
+    if (hit) hits.push({ row, ...hit });
+  }
+  if (reference) hits.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+  const found = hits.map(h => (reference ? { ...h.row, distance: round(h.distance ?? 0, 1), side: h.side } : h.row));
+  return {
+    kind,
+    total: found.length,
+    shown: Math.min(found.length, max),
+    ...(reference ? { distanceUnit: options.map.units.distance.unit, sortedBy: "distance" } : {}),
+    rows: found.slice(0, max)
+  };
 }

@@ -96,8 +96,12 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
       const asText = text_map ?? cfg.view.textOnly;
       const image = asText ? text(await session.call("textMap", { cols, rows })) : await screenshotContent();
       if (wantsNotes) await session.call("clearAnnotations");
-      const info = await session.call<{ states: { id: number; name: string; color: string }[]; camera: unknown }>("summary");
-      return { content: [image, text({ camera: info.camera, annotations: notes, legend: info.states.map(s => ({ id: s.id, name: s.name, color: s.color })) })] };
+      const info = await session.call<{ states: { id: number; name: string; color: string }[]; camera: { scale?: number } }>("summary");
+      const camera = info.camera;
+      const coverageNote = (!whole_map && !region && camera && typeof camera.scale === "number" && camera.scale > 1.05)
+        ? `Camera is zoomed in (scale ${camera.scale}): only part of the map is visible in this shot. Pass whole_map: true or call map_camera with scale: 1 to see the entire map.`
+        : undefined;
+      return { content: [image, text({ camera, ...(coverageNote ? { coverageNote } : {}), annotations: notes, legend: info.states.map(s => ({ id: s.id, name: s.name, color: s.color })) })] };
     })
   );
 
@@ -131,10 +135,25 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     "map_list",
     {
       title: "List entities",
-      description: "List entities: states, provinces, cultures, religions, burgs (cities), markers, markerTypes (the types addMarker accepts), routes, rivers, labels (what stands where on the map, with the shift moveLabel applied). `name` keeps only entries whose name contains that text (case-insensitive): the way to find a city or state by name. Provinces and burgs can be filtered by state. Long lists are cut at `limit` (default 50); `total` is the real count.",
-      inputSchema: { kind: z.string(), name: z.string().optional(), state: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(cfg.limits.listMax).optional() }
+      description:
+        "List entities: states, provinces, cultures, religions, burgs (cities), markers, markerTypes (the types addMarker accepts), routes, rivers, labels (what stands where on the map, with the shift moveLabel applied). `name` keeps only entries whose name contains that text (case-insensitive): the way to find a city or state by name. Provinces and burgs can be filtered by state. Spatial filters: `rect` {x0, y0, x1, y1} restricts to a box; `near` {burg: id} or {river: id} or {x, y} sorts by distance; `within` limits distance; `direction` (N, NE, E, SE, S, SW, W, NW) keeps only entities on that compass side. Long lists are cut at `limit` (default 50); `total` is the real count.",
+      inputSchema: {
+        kind: z.string(),
+        name: z.string().optional(),
+        state: z.number().int().min(0).optional(),
+        limit: z.number().int().min(1).max(cfg.limits.listMax).optional(),
+        rect: z.object({ x0: z.number(), y0: z.number(), x1: z.number(), y1: z.number() }).strict().optional(),
+        near: z.object({ x: z.number().optional(), y: z.number().optional(), burg: z.number().int().min(1).optional(), river: z.number().int().min(1).optional() }).strict().optional(),
+        within: z.number().min(0).optional(),
+        direction: z.enum(["N", "NE", "E", "SE", "S", "SW", "W", "NW"]).optional()
+      }
     },
-    guarded(async ({ kind, name, state, limit }) => ({ content: [text(await session.call("list", kind, state, limit, name))] }))
+    guarded(async ({ kind, name, state, limit, rect, near, within, direction }) => {
+      const spatial = { rect, near, within, direction };
+      const wanted = Object.values(spatial).some(v => v !== undefined);
+      const filter = wanted ? Object.fromEntries(Object.entries(spatial).filter(([, v]) => v !== undefined)) : undefined;
+      return { content: [text(await session.call("list", kind, state, limit, name, filter))] };
+    })
   );
 
   server.registerTool(
@@ -227,14 +246,18 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     "map_undo",
     {
       title: "Undo / redo",
-      description: "Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections survive (their cells are found again by position); check with map_view before editing.",
+      description: "Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections survive (their cells are found again by position); check with map_view before editing. On undo, an automatic rescue snapshot of the map right before reverting is saved to maps/rescue-before-undo.map so uncheckpointed human edits are never lost (reloaded via map_file load name=rescue-before-undo).",
       inputSchema: { action: z.enum(["undo", "redo", "list"]) }
     },
     guarded(async ({ action }) => {
       if (action === "list") return { content: [text(history.state())] };
       const entry = action === "undo" ? await history.undo() : await history.redo();
       await autosave();
-      return { content: [text({ done: action, step: entry.label, history: history.state() })] };
+      const details: Record<string, unknown> = { done: action, step: entry.label, history: history.state() };
+      if ("rescueFile" in entry && entry.rescueFile) {
+        details.rescueSnapshot = "maps/rescue-before-undo.map (reload with map_file load name=rescue-before-undo)";
+      }
+      return { content: [text(details)] };
     })
   );
 

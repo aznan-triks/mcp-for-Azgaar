@@ -50,6 +50,12 @@ export interface AgentConfig {
   view3dSampleSize: number; // the 3D picture is shrunk to this many pixels a side for the comparison
   view3dTextureMax: number; // largest texture the person may ask for (the renderer also clamps to the graphics card)
   view3dDefaultDistance: { relief: number; globe: number }; // camera distance when none is given
+  diptychBgColor: string; // background colour of the composite diptych plate
+  diptychTextColor: string; // main title and label colour
+  diptychSubtextColor: string; // subtitle and coordinates colour
+  diptychAtmosphereColor: string; // atmospheric limb glow start
+  diptychAtmosphereMidColor: string; // atmospheric limb glow mid
+  diptychAtmosphereEndColor: string; // atmospheric limb glow end
 }
 
 export const DEFAULT_CONFIG: AgentConfig = {
@@ -102,7 +108,13 @@ export const DEFAULT_CONFIG: AgentConfig = {
   view3dStableDiff: 2,
   view3dSampleSize: 32,
   view3dTextureMax: 8192,
-  view3dDefaultDistance: { relief: 640, globe: 3 }
+  view3dDefaultDistance: { relief: 640, globe: 3 },
+  diptychBgColor: "#01040a",
+  diptychTextColor: "#ffffff",
+  diptychSubtextColor: "#94a3b8",
+  diptychAtmosphereColor: "rgba(80, 160, 255, 0.45)",
+  diptychAtmosphereMidColor: "rgba(60, 130, 240, 0.15)",
+  diptychAtmosphereEndColor: "rgba(0, 0, 0, 0)"
 };
 
 export const config: AgentConfig = { ...DEFAULT_CONFIG };

@@ -121,12 +121,12 @@ export function registerExtraTools(kit: Kit): void {
     {
       title: "3D picture: relief scene or globe",
       description:
-        "Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief only), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet. sun_position {x, y, z}; atmosphere = sky and horizon fog (relief); erosion (relief); height_scale (relief); distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.",
+        "Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief only), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet; diptych saves a single composite plate showing both hemispheres side-by-side with planetary cartouche. sun_position {x, y, z}; atmosphere = sky and horizon fog (relief); erosion (relief); height_scale (relief); distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.",
       inputSchema: {
         mode: z.enum(["relief", "globe"]),
         preset: z.enum(Object.keys(cfg.view3d.presets) as [string, ...string[]]).optional(),
         rotation: z.object({ x: z.number(), y: z.number() }).optional(),
-        hemispheres: z.enum(["single", "both"]).optional(),
+        hemispheres: z.enum(["single", "both", "diptych"]).optional(),
         sun_position: z.object({ x: z.number(), y: z.number(), z: z.number().optional() }).optional(),
         atmosphere: z.boolean().optional(),
         erosion: z.boolean().optional(),
@@ -143,7 +143,7 @@ export function registerExtraTools(kit: Kit): void {
     guarded(async args => {
       const { mode, preset, rotation, hemispheres, sun_position, atmosphere, erosion, height_scale, distance, texture_resolution, labels, clean, output, name, max_image_bytes } = args;
       const globe = mode === "globe";
-      if (hemispheres === "both" && !globe) throw new Error("map_3d: hemispheres both only exists for the globe");
+      if ((hemispheres === "both" || hemispheres === "diptych") && !globe) throw new Error(`map_3d: hemispheres ${hemispheres} only exists for the globe`);
       const chosen = preset ? cfg.view3d.presets[preset] : undefined;
       if (globe && (chosen?.satellite || erosion || chosen?.erosion)) throw new Error("map_3d: satellite and erosion only exist in relief mode");
       const fmt = output ?? cfg.view3d.format;
@@ -173,7 +173,7 @@ export function registerExtraTools(kit: Kit): void {
       try {
         if (layerSet) await session.call("setLayers", { only: layerSet });
         if (wantsClean) await session.call("setCleanMode", true, cfg.export.cleanHide);
-        const first = hemispheres === "both" ? { x: 0, y: rotation?.y ?? 0 } : rotation;
+        const first = (hemispheres === "both" || hemispheres === "diptych") ? { x: 0, y: rotation?.y ?? 0 } : rotation;
         opened = await session.call<Record<string, unknown>>("open3d", {
           mode,
           satellite: chosen?.satellite,
@@ -188,7 +188,37 @@ export function registerExtraTools(kit: Kit): void {
         });
         if (opened.finished === false) notes.push("the 3D picture was still changing when the wait ran out: ask again, or lower texture_resolution");
         if (globe) globeInfo = await session.call<Record<string, unknown>>("globeInfo");
-        if (hemispheres === "both") {
+        if (hemispheres === "diptych") {
+          if (rotation && rotation.x !== 0) notes.push("rotation.x is ignored with hemispheres diptych (the two views are centred on the west and east halves of the map)");
+          const span = Number(globeInfo?.mapLongitudeDegrees ?? 0);
+          const shift = span * cfg.view3d.hemisphereOffset;
+          const pic = await session.call<{ data: string; mimeType: string; width: number; height: number }>(
+            "captureDiptych",
+            fmt,
+            cfg.view3d.quality,
+            shift,
+            rotation?.y ?? 0,
+            distance
+          );
+          const bytes = Buffer.from(pic.data, "base64");
+          const file = join(cfg.exportsDir, `${base}-diptych.${fmt === "jpeg" ? "jpg" : fmt}`);
+          writeFileSync(file, bytes);
+          let inline: Content;
+          if (bytes.length <= limit && fmt !== "webp") {
+            inline = { type: "image", data: pic.data, mimeType: pic.mimeType };
+          } else {
+            const smallDipt = await session.call<{ data: string; mimeType: string }>(
+              "captureDiptych",
+              "jpeg",
+              cfg.view.jpegQuality,
+              shift,
+              rotation?.y ?? 0,
+              distance
+            );
+            inline = { type: "image", data: smallDipt.data, mimeType: smallDipt.mimeType };
+          }
+          shots.push({ label: "diptych", file, widthPx: pic.width, heightPx: pic.height, bytes: bytes.length, inline });
+        } else if (hemispheres === "both") {
           if (rotation && rotation.x !== 0) notes.push("rotation.x is ignored with hemispheres both (the two views are centred on the west and east halves of the map)");
           const span = Number(globeInfo?.mapLongitudeDegrees ?? 0);
           const shift = span * cfg.view3d.hemisphereOffset;

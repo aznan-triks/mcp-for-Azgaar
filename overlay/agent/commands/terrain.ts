@@ -135,15 +135,21 @@ async function applyGridHeights(
   editor.allowErosion = rivers === "rebuild";
   const { restoreRiskedData } = await import("@/controllers/heightmap-editor");
   const active = Layers.state.active;
+  const reliefActive = active.includes("relief");
   try {
     Layers.set([]);
     // Drawn feature paths are keyed by feature id, and ids are reassigned by the rebuild: clear them first (same as the editor).
     for (const el of document.querySelectorAll(
-      "#deftemp #land path, #deftemp #water path, #deftemp #featurePaths path, #viewbox #coastline use, #viewbox #lakes path, #viewbox #oceanLayers path"
+      "#deftemp #land path, #deftemp #water path, #deftemp #featurePaths path, #viewbox #coastline use, #viewbox #lakes path, #viewbox #oceanLayers path, #viewbox #terrain *, #viewbox #relief *, #terrain *"
     ))
       el.remove();
+    const { removeRelief } = await import("@/renderers/draw-relief-icons");
+    removeRelief();
+    pack.relief = [];
     restoreRiskedData();
+    Relief.generate();
     Layers.draw("ocean", "landmass", "lakes", "coastline");
+    if (reliefActive) Layers.draw("relief");
     Layers.set(active);
   } finally {
     editor.allowErosion = previousErosion;
@@ -168,7 +174,8 @@ async function applyGridHeights(
   const warnings = [
     ...scopeNote,
     ...hiddenLayerNote(["heightmap", "relief"], "The relief change"),
-    "Cell ids were renumbered by the rebuild: all earlier selections were dropped. Select again before the next edit."
+    "Cell ids were renumbered by the rebuild: all earlier selections were dropped. Select again before the next edit.",
+    "To represent landmarks or new features without a global terrain rebuild, consider using map_apply annotate (kind: 'area' or 'text')."
   ];
   if (protectedBurgCells)
     warnings.push(

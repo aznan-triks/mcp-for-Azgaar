@@ -67,7 +67,7 @@ Full facts about one cell: state, province, culture, religion, biome, height, bu
 
 ## map_list
 
-List entities: states, provinces, cultures, religions, burgs (cities), markers, markerTypes (the types addMarker accepts), routes, rivers, labels (what stands where on the map, with the shift moveLabel applied). `name` keeps only entries whose name contains that text (case-insensitive): the way to find a city or state by name. Provinces and burgs can be filtered by state. Long lists are cut at `limit` (default 50); `total` is the real count.
+List entities: states, provinces, cultures, religions, burgs (cities), markers, markerTypes (the types addMarker accepts), routes, rivers, labels (what stands where on the map, with the shift moveLabel applied). `name` keeps only entries whose name contains that text (case-insensitive): the way to find a city or state by name. Provinces and burgs can be filtered by state. Spatial filters: `rect` {x0, y0, x1, y1} restricts to a box; `near` {burg: id} or {river: id} or {x, y} sorts by distance; `within` limits distance; `direction` (N, NE, E, SE, S, SW, W, NW) keeps only entities on that compass side. Long lists are cut at `limit` (default 50); `total` is the real count.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
@@ -75,6 +75,10 @@ List entities: states, provinces, cultures, religions, burgs (cities), markers, 
 | `name` | string | no |  |
 | `state` | integer (min 0, max 9007199254740991) | no |  |
 | `limit` | integer (min 1, max 1000) | no |  |
+| `rect` | object {x0, y0, x1, y1} | no |  |
+| `near` | object {x, y, burg, river} | no |  |
+| `within` | number (min 0) | no |  |
+| `direction` | one of: `N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW` | no |  |
 
 ## map_select
 
@@ -125,7 +129,7 @@ Show or hide a legend box on the map: it explains the colours of a layer and is 
 
 ## map_undo
 
-Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections survive (their cells are found again by position); check with map_view before editing.
+Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections survive (their cells are found again by position); check with map_view before editing. On undo, an automatic rescue snapshot of the map right before reverting is saved to maps/rescue-before-undo.map so uncheckpointed human edits are never lost (reloaded via map_file load name=rescue-before-undo).
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
@@ -191,14 +195,14 @@ Exports exactly what Azgaar's Export menu exports, into the exports folder (the 
 
 ## map_3d
 
-Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief only), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet. sun_position {x, y, z}; atmosphere = sky and horizon fog (relief); erosion (relief); height_scale (relief); distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.
+Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief only), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet; diptych saves a single composite plate showing both hemispheres side-by-side with planetary cartouche. sun_position {x, y, z}; atmosphere = sky and horizon fog (relief); erosion (relief); height_scale (relief); distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
 | `mode` | one of: `relief`, `globe` | yes |  |
 | `preset` | one of: `satellite`, `heightmap`, `biomes` | no |  |
 | `rotation` | object {x, y} | no |  |
-| `hemispheres` | one of: `single`, `both` | no |  |
+| `hemispheres` | one of: `single`, `both`, `diptych` | no |  |
 | `sun_position` | object {x, y, z} | no |  |
 | `atmosphere` | boolean | no |  |
 | `erosion` | boolean | no |  |

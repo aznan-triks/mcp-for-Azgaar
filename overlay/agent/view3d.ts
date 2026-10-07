@@ -192,3 +192,126 @@ export function setCleanMode(on: boolean, selectors: string[] = []): { hidden: n
     }
   return { hidden: hiddenByClean.size };
 }
+
+/** Composites the two hemisphere images (west, east) side-by-side into a single planetary diptych. */
+export async function captureDiptych(
+  format: "png" | "jpeg" | "webp",
+  quality: number,
+  shift: number,
+  rotationY = 0,
+  distance?: number
+): Promise<{ data: string; mimeType: string; width: number; height: number }> {
+  const canvas = canvas3d();
+  if (!canvas) throw new AgentError("captureDiptych: no 3D view is open (use open3d first)");
+  const cw = canvas.width;
+  const ch = canvas.height;
+
+  // Globe distance with breathing margins so headers and footers never collide with the spheres
+  const dist = distance ?? config.view3dDefaultDistance.globe * 1.22; // const-ok
+  const r = await renderer();
+  r.setView({ x: -shift, y: rotationY, distance: dist });
+  await waitUntilStable();
+  const westPic = capture3d("png", 100);
+
+  r.setView({ x: shift, y: rotationY, distance: dist });
+  await waitUntilStable();
+  const eastPic = capture3d("png", 100);
+
+  // Perspective camera projection of a sphere of radius 1 at distance dist:
+  const fovRad = (45 * Math.PI) / 180; // const-ok: camera field of view (45 degrees)
+  const safeDist = Math.max(1.1, dist); // const-ok
+  const theta = Math.asin(1 / safeDist);
+  const radiusPx = (ch / 2) * (Math.tan(theta) / Math.tan(fovRad / 2));
+
+  const comp = document.createElement("canvas");
+  comp.width = cw * 2; // const-ok
+  comp.height = ch;
+  const ctx = comp.getContext("2d");
+  if (!ctx) throw new AgentError("captureDiptych: 2D canvas context unavailable");
+
+  ctx.fillStyle = config.diptychBgColor;
+  ctx.fillRect(0, 0, comp.width, comp.height);
+
+  let seed = 42;
+  const next = () => {
+    seed = (seed * 16807) % 2147483647; // const-ok
+    return (seed - 1) / 2147483646; // const-ok
+  };
+  const starCount = 350;
+  for (let i = 0; i < starCount; i++) {
+    const sx = next() * comp.width;
+    const sy = next() * comp.height;
+    const sr = next() * 1.5 + 0.3;
+    const sa = 0.2 + next() * 0.7;
+    ctx.fillStyle = config.diptychTextColor;
+    ctx.globalAlpha = sa;
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1.0;
+
+  const loadImg = (b64: string): Promise<HTMLImageElement> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = `data:image/png;base64,${b64}`;
+    });
+
+  const [westImg, eastImg] = await Promise.all([loadImg(westPic.data), loadImg(eastPic.data)]);
+
+  const drawGlobe = (img: HTMLImageElement, offsetX: number) => {
+    const cx = offsetX + cw / 2;
+    const cy = ch / 2;
+
+    // Atmospheric limb glow (Rayleigh halo) behind and around the planet rim
+    const glowGrad = ctx.createRadialGradient(cx, cy, radiusPx * 0.98, cx, cy, radiusPx * 1.035);
+    glowGrad.addColorStop(0, config.diptychAtmosphereColor);
+    glowGrad.addColorStop(0.5, config.diptychAtmosphereMidColor);
+    glowGrad.addColorStop(1, config.diptychAtmosphereEndColor);
+    ctx.fillStyle = glowGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radiusPx * 1.035, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Clip to exact spherical disc to preserve the seamless continuous starfield
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radiusPx + 0.5, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(img, offsetX, 0, cw, ch);
+    ctx.restore();
+  };
+
+  drawGlobe(westImg, 0);
+  drawGlobe(eastImg, cw);
+
+  const mapName = (options.map.lore?.name || "WORLD").toUpperCase();
+  const coords = options.map.geography?.coordinates;
+  const spanLon = coords ? coords.lonT : 360;
+  const oceanClose = Math.max(0, 360 - spanLon);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = config.diptychTextColor;
+  ctx.font = "bold 28px 'Segoe UI', Montserrat, sans-serif";
+  ctx.fillText(`PLANÈTE ${mapName}`, comp.width / 2, 45);
+
+  ctx.fillStyle = config.diptychSubtextColor;
+  ctx.font = "14px 'Segoe UI', monospace";
+  ctx.fillText(
+    `CARTOGRAPHIE ORBITALE • ÉTENDUE : ${spanLon}° LON • OCÉAN DE FERMETURE : ${oceanClose}°`,
+    comp.width / 2,
+    72
+  );
+
+  ctx.fillStyle = config.diptychTextColor;
+  ctx.font = "bold 20px 'Segoe UI', sans-serif";
+  ctx.fillText("HÉMISPHÈRE OCCIDENTAL", cw / 2, ch - 35);
+  ctx.fillText("HÉMISPHÈRE ORIENTAL", cw + cw / 2, ch - 35);
+
+  const mimeType = `image/${format}`;
+  const url = comp.toDataURL(mimeType, quality / 100);
+  if (!url.startsWith(`data:${mimeType}`)) throw new AgentError(`captureDiptych: this browser cannot encode ${format}`);
+  return { data: url.slice(url.indexOf(",") + 1), mimeType, width: comp.width, height: comp.height };
+}

@@ -84,7 +84,12 @@ export async function doctor({ headed = false } = {}) {
     ok(`local port ${web.port} is free`);
   } catch (err) {
     fail(err.message, "close the other copy of the server (another AI client may be using it) or change server.port");
-    return finish();
+    try {
+      web = await startStaticServer(cfg.azgaarDist, cfg.server.host, 0);
+      warn(`continuing diagnostic with fallback port ${web.port} to verify browser and offline mode`);
+    } catch {
+      return finish();
+    }
   }
 
   cfg.browser.headless = !headed;

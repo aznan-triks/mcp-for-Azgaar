@@ -744,6 +744,15 @@ await restoreFeatures();
   check("3d: satellite on a globe is refused", bad.includes("relief mode"), bad);
   const none = await A(() => { try { FMG_AGENT.capture3d("png", 90); return "no error"; } catch (e) { return e.message; } });
   check("3d: capture without an open view is refused", none.includes("no 3D view"), none);
+
+  await A(() => FMG_AGENT.open3d({ mode: "globe", textureResolution: 1024 }));
+  const dipt = await A(() => FMG_AGENT.captureDiptych("png", 90, 80));
+  check("3d globe diptych: composites double-width image (S-022)", dipt.width === 2560 && dipt.height === 720);
+  const bufDipt = Buffer.from(dipt.data, "base64");
+  check("3d globe diptych: valid PNG output", bufDipt.subarray(1, 4).toString() === "PNG" && bufDipt.length > 5000);
+  const diptJpeg = await A(() => FMG_AGENT.captureDiptych("jpeg", 80, 80));
+  check("3d globe diptych: valid JPEG preview output", diptJpeg.mimeType === "image/jpeg" && diptJpeg.data.length > 1000);
+  await A(() => FMG_AGENT.close3d());
 }
 
 check("no JavaScript errors in the page", errors.length === 0, errors.slice(0, 3).join(" | "));

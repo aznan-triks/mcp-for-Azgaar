@@ -206,7 +206,7 @@ const addRiver: Command = {
       name,
       type: "River"
     } as unknown as River);
-    Layers.draw("rivers");
+    Layers.draw("rivers", "labels");
     return {
       ok: true,
       message: `River ${riverId} "${name}" drawn over ${chain.length} cells`,

@@ -179,6 +179,12 @@ The bridge runs inside the web page and handles map queries, selections, and edi
 | `view3dSampleSize` | number | `64` | Downsampled probe dimension in pixels used to detect movement in 3D canvas rendering. |
 | `view3dTextureMax` | number | `4096` | Upper limit on texture resolution for 3D terrain rendering. |
 | `view3dDefaultDistance` | object | `{ relief: 1000, globe: 1800 }` | Default camera distance in scene units for relief and globe views. |
+| `diptychBgColor` | string | `"#01040a"` | Background color of the composite planetary diptych plate. |
+| `diptychTextColor` | string | `"#ffffff"` | Text color for titles and hemisphere labels on the diptych plate. |
+| `diptychSubtextColor` | string | `"#94a3b8"` | Text color for coordinates, extent, and technical notes on the diptych plate. |
+| `diptychAtmosphereColor` | string | `"rgba(80, 160, 255, 0.45)"` | Inner color of the atmospheric Rayleigh limb glow around each planetary hemisphere. |
+| `diptychAtmosphereMidColor` | string | `"rgba(60, 130, 240, 0.15)"` | Intermediate color of the atmospheric limb glow gradient. |
+| `diptychAtmosphereEndColor` | string | `"rgba(0, 0, 0, 0)"` | Outer fade-out color of the atmospheric limb glow gradient. |
 
 ## Script Command-Line Options
 

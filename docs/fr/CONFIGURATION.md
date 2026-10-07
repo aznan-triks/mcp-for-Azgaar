@@ -181,6 +181,12 @@ La passerelle s'exécute à l'intérieur de la page web et gère les requêtes s
 | `view3dSampleSize` | number | `64` | Dimension de la sonde d'échantillonnage en pixels pour détecter les mouvements sur le canevas 3D. |
 | `view3dTextureMax` | number | `4096` | Plafond de résolution de texture pour le rendu de terrain en 3D. |
 | `view3dDefaultDistance` | object | `{ relief: 1000, globe: 1800 }` | Distance de caméra par défaut en unités de scène pour les vues relief et globe. |
+| `diptychBgColor` | string | `"#01040a"` | Couleur d'arrière-plan de la planche composite du diptyque planétaire. |
+| `diptychTextColor` | string | `"#ffffff"` | Couleur du texte pour le titre principal et les étiquettes d'hémisphères du diptyque. |
+| `diptychSubtextColor` | string | `"#94a3b8"` | Couleur du texte pour les sous-titres, coordonnées et mentions d'océan de fermeture. |
+| `diptychAtmosphereColor` | string | `"rgba(80, 160, 255, 0.45)"` | Couleur de départ du halo atmosphérique (halo de Rayleigh) autour de chaque globe. |
+| `diptychAtmosphereMidColor` | string | `"rgba(60, 130, 240, 0.15)"` | Couleur intermédiaire du dégradé du halo atmosphérique. |
+| `diptychAtmosphereEndColor` | string | `"rgba(0, 0, 0, 0)"` | Couleur d'estompage externe du halo atmosphérique. |
 
 ## Options de ligne de commande des scripts
 

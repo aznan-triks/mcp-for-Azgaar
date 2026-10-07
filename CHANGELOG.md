@@ -2,6 +2,21 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.4.0
+
+**Plain words:** You can now export a composite dual-hemisphere planetary diptych with orbital cartouche and atmospheric Rayleigh limb glow, uncheckpointed manual edits are automatically protected by a rescue snapshot before any undo, the AI can filter entities spatially (by bounding box, compass direction, or distance to a city or river), dialogs close automatically before edits, and diagnostic checks gracefully fall back to an available port when the default port is busy.
+
+**Technical:**
+- `map_3d` diptych mode (`hemispheres: "diptych"`): renders both hemispheres side-by-side with procedural continuous starfields, atmospheric Rayleigh limb glow gradients, orbital title banners, and closing ocean statistics.
+- Safeguard manual edits (`map_undo` rescue snapshot): automatically writes `maps/rescue-before-undo.map` prior to reverting state so human modifications are never lost.
+- Spatial queries in `map_list`: added `spatial.ts` engine supporting `rect` bounding boxes, `near` references ({burg, river, x, y}), `within` radius limits, and `direction` compass bearings (N, NE, E, SE, S, SW, W, NW).
+- Dialog safety: `uiCloseDialogs()` called prior to applying edits to prevent conflicting UI states.
+- Clean export isolation: wrapped cleanup calls in `finally` blocks with isolated exception handlers.
+- River labelling: `addRiver` automatically redraws river labels alongside river paths.
+- Relief rebuild glitch fix: clears relief and feature paths before heightmap recalculation.
+- Diagnostic resiliency: `doctor` falls back to an ephemeral port (port 0) when the configured server port is occupied.
+- Verified via `npm run check` (types, lint, architecture rules, smoke tests, and 27 e2e tests).
+
 ## 1.3.0
 
 **Plain words:** The AI can now render 3D scenes of your map (relief landscapes and a full planetary globe that preserves its longitude span), display persistent legend boxes explaining map colors, export clean cartography without game pictograms, rename rivers, and start without opening the browser window until the first map tool is requested.

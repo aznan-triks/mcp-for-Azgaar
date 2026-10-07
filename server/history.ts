@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { MapSession } from "./browser.ts";
 
 export interface Entry {
@@ -85,13 +85,27 @@ export class History {
     await this.session.call("importMap", readFileSync(entry.file, "utf8"), true); // same geography: keep selections
   }
 
-  async undo(): Promise<Entry> {
+  /** Saves a rescue checkpoint of the current map before an undo or disruptive revert. */
+  async rescue(): Promise<string> {
+    const file = join(dirname(this.dir), "rescue-before-undo.map");
+    const text = await this.session.call<string>("exportMap");
+    writeFileSync(file, text);
+    return file;
+  }
+
+  async undo(): Promise<Entry & { rescueFile?: string }> {
     const entry = this.past.pop();
     if (!entry) throw new Error("Nothing to undo");
+    let rescueFile: string | undefined;
+    try {
+      rescueFile = await this.rescue();
+    } catch {
+      /* ignore rescue save error so undo still functions */
+    }
     this.future.push(await this.snapshot(entry.label));
     await this.restore(entry);
     this.forget(entry);
-    return entry;
+    return { ...entry, rescueFile };
   }
 
   async redo(): Promise<Entry> {
