@@ -21,6 +21,7 @@ describe("screenshot size guard", { timeout: 180000 }, () => {
     cfg.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
     cfg.profileDir = join(work, `p-${maxImageBytes}`);
     cfg.map.seed = "333";
+    cfg.browser.viewport = { width: 1280, height: 720 }; cfg.map.width = 1280; cfg.map.height = 720;
     cfg.view.format = "png";
     cfg.view.maxImageBytes = maxImageBytes;
     const web = await startStaticServer(cfg.azgaarDist, "127.0.0.1", 0);

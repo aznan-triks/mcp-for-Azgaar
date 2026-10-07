@@ -1,10 +1,12 @@
 import { AgentError, type Command, type CommandResult, type Params } from "../types";
 import { validate } from "../validate";
+import { annotateCommands } from "./annotate";
 import { burgCommands } from "./burgs";
 import { communityCommands } from "./communities";
 import { emblemCommands } from "./emblems";
 import { featureCommands } from "./features";
 import { labelCommands } from "./labels";
+import { legendCommands } from "./legend";
 import { namingCommands } from "./naming";
 import { provinceCommands } from "./provinces";
 import { stateCommands } from "./states";
@@ -22,6 +24,8 @@ export const commands: Command[] = [
   ...featureCommands,
   ...labelCommands,
   ...emblemCommands,
+  ...legendCommands,
+  ...annotateCommands,
   ...namingCommands
 ];
 

@@ -2,6 +2,20 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.3.0
+
+**Plain words:** The AI can now render 3D scenes of your map (relief landscapes and a full planetary globe that preserves its longitude span), display persistent legend boxes explaining map colors, export clean cartography without game pictograms, rename rivers, and start without opening the browser window until the first map tool is requested.
+
+**Technical:**
+- `map_3d`: 3D picture rendering using Azgaar's built-in 3D engine in relief or globe modes, supporting camera rotation, dual hemispheres, texture presets, and procedural local starfields without network requests.
+- `map_legend`: on-screen legend boxes explaining colors of states, provinces, biomes, cultures, religions, elevation, trade routes, or custom items.
+- Clean exports: `clean: true` in `map_export` and `map_3d` forces port anchors, trade routes, markers, and ice pictograms off during rendering.
+- River renaming supported via `map_apply rename` (`kind: "river"`).
+- Lazy browser launch: `browser.openOnStart` (defaults to `false`) defers browser launch until the first map-interacting tool.
+- Upstream 3D globe layout patch: respect longitude span without distortion, procedural offline starfield.
+- Diagnostic check updated: `doctor` detects stale client entries pointing to other repository paths.
+- Verified via `npm run check` (smoke tests, e2e tests, docs integrity).
+
 ## 1.2.5
 
 **Plain words:** Crashed browsers no longer lock you out on the next launch, and the AI can now load maps from anywhere on your computer by their absolute file path.

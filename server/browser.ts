@@ -223,6 +223,28 @@ export class MapSession {
     return { data: await page.screenshot({ type: "jpeg", quality: jpegQuality }), mimeType: "image/jpeg" };
   }
 
+  /** The browser window size in CSS pixels. */
+  viewportSize(): { width: number; height: number } {
+    return this.page?.viewportSize() ?? this.cfg.browser.viewport;
+  }
+
+  /** Captures the window at `scale` times its pixel size (vector map: more pixels, same framing). No size limit applied. */
+  async captureScaled(scale: number, format: "png" | "jpeg", jpegQuality: number): Promise<Buffer> {
+    const page = await this.ensure();
+    const { width, height } = this.viewportSize();
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      const shot = await cdp.send("Page.captureScreenshot", {
+        format,
+        ...(format === "jpeg" ? { quality: jpegQuality } : {}),
+        clip: { x: 0, y: 0, width, height, scale }
+      });
+      return Buffer.from(shot.data, "base64");
+    } finally {
+      await cdp.detach().catch(() => undefined);
+    }
+  }
+
   /** True while a browser window exists (background jobs must never reopen one the person closed). */
   isOpen(): boolean {
     return this.page !== null && !this.page.isClosed();

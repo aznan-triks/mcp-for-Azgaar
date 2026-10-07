@@ -13,6 +13,7 @@ import { getSettings, releaseSettings, setSettings } from "./settings";
 import { textMap } from "./textmap";
 import { AgentError, type CommandResult, type Params } from "./types";
 import { uiClick, uiCloseDialogs, uiGet, uiList, uiSet } from "./ui";
+import { capture3d, close3d, globeInfo, is3dOpen, open3d, setCleanMode, view3d } from "./view3d";
 
 const API_VERSION = 1;
 
@@ -114,6 +115,13 @@ const FMG_AGENT = {
   lastFailureLeftMapDirty: () => lastFailureLeftMapDirty,
   annotate: (opts: OverlayOptions) => drawAnnotations(opts),
   clearAnnotations,
+  open3d,
+  view3d,
+  capture3d,
+  close3d,
+  is3dOpen,
+  globeInfo,
+  setCleanMode,
   exportMap,
   importMap,
   AgentError

@@ -117,15 +117,17 @@ Outils MCP disponibles :
 - `map_options` : Lit et règle la façon dont la prochaine carte est générée (nombre d'États, cultures, religions, modèle de relief, climat, unités, calendrier, nom de la carte...), contrôlé par les règles d'Azgaar.
 - `map_menu` : Lance les actions propres à Azgaar : ouvrir n'importe quel éditeur ou aperçu, régénérer fleuves, villes, cultures, religions, États, marqueurs, armées, économie..., ouvrir les graphiques.
 - `map_ui` : Manipule l'écran d'Azgaar comme une personne : fenêtres, menu latéral, boutons, champs, listes, même les sélecteurs de fichier (par exemple importer une image de relief).
+- `map_legend` : Affiche ou masque des boîtes de légende pour expliquer les couleurs d'un calque (États, provinces, biomes, altitude, commerce...).
+- `map_3d` : Génère une image 3D de relief ou un globe planétaire avec le moteur 3D intégré d'Azgaar.
 
 ### L'IA peut-elle utiliser 100 % d'Azgaar ?
 
 En pratique oui, sur trois niveaux :
 1. **Commandes dédiées** (`map_apply`, `map_select`) pour les modifications précises : frontières, États, provinces, cultures, religions, villes, fleuves, routes, marqueurs, étiquettes, emblèmes, relief.
 2. **Le menu d'actions et l'écran d'Azgaar** (`map_menu` + `map_ui`) pour tout le reste de l'interface : tous les éditeurs et aperçus, tous les boutons de régénération, styles, notes, unités, biomes, diplomatie, zones, armées, marchandises et marchés, convertisseur d'image...
-3. **Exports et réglages** (`map_export`, `map_options`) pour sortir données et images, et générer des cartes à votre goût.
+3. **Exports, scènes 3D et réglages** (`map_export`, `map_3d`, `map_legend`, `map_options`) pour sortir données, scènes rendues et images, et générer des cartes à votre goût.
 
-Limites honnêtes : le dessin à main levée à la souris (coups de pinceau) est remplacé par les commandes de relief et de sélection ; les vues 3D et les fonctions en ligne d'Azgaar (son assistant de discussion, les sauvegardes dans le nuage) ne sont pas prises en charge ; manipuler une fenêtre avec `map_ui` n'est aussi fiable que la fenêtre elle-même. Pour le reste, `allowEval` dans `config/fmg-mcp.json` permet à une IA d'exécuter son propre code dans la page de la carte (désactivé par défaut, avancé).
+Limites honnêtes : le dessin à main levée à la souris (coups de pinceau) est remplacé par les commandes de relief et de sélection ; les fonctions en ligne d'Azgaar (son assistant de discussion, les sauvegardes dans le nuage) ne sont pas prises en charge ; manipuler une fenêtre avec `map_ui` n'est aussi fiable que la fenêtre elle-même. Pour le reste, `allowEval` dans `config/fmg-mcp.json` permet à une IA d'exécuter son propre code dans la page de la carte (désactivé par défaut, avancé).
 
 ## Documentation
 

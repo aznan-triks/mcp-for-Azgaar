@@ -1,7 +1,8 @@
 // `npm run doctor`: checks everything the server needs and says what to fix. Opens a hidden browser to prove it works.
 //   --headed   show the browser window during the check
-import { accessSync, constants, existsSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isSupportedNode, parseNode, PREFERRED_NODE_MAJOR, unsupportedNodeMessage } from "./node-version.mjs";
 import { desktopConfigPath } from "./register.mjs";
@@ -13,6 +14,33 @@ const fail = (msg, fix) => {
   bad += 1;
   console.log(`  FAIL  ${msg}${fix ? `\n        -> ${fix}` : ""}`);
 };
+
+/** Config files of AI clients that may hold an entry for this server (Claude Desktop, Gemini). */
+export function clientConfigFiles(home = homedir()) {
+  return [desktopConfigPath(), join(home, ".gemini", "config", "mcp_config.json")];
+}
+
+/**
+ * Finds client entries that launch a start.mjs which is not this copy's. Returns one line per stale entry.
+ */
+export function staleClientEntries(files, startFile) {
+  const mine = resolve(startFile).toLowerCase();
+  const found = [];
+  for (const file of files) {
+    let servers;
+    try {
+      servers = JSON.parse(readFileSync(file, "utf8")).mcpServers ?? {};
+    } catch {
+      continue; // absent or unreadable: nothing to judge
+    }
+    for (const [name, entry] of Object.entries(servers)) {
+      const script = (entry?.args ?? []).find(a => typeof a === "string" && /[\\/]scripts[\\/]start\.mjs$/i.test(a));
+      if (!script || resolve(script).toLowerCase() === mine) continue;
+      found.push(`${file}: "${name}" starts ${script}, not this copy (${startFile})`);
+    }
+  }
+  return found;
+}
 
 export async function doctor({ headed = false } = {}) {
   console.log("azgaar doctor\n");
@@ -87,6 +115,8 @@ export async function doctor({ headed = false } = {}) {
   } catch {
     warn("could not read the Claude Desktop config");
   }
+  const stale = staleClientEntries(clientConfigFiles(), join(import.meta.dirname, "start.mjs"));
+  for (const line of stale) warn(`${line}. If this is not intended, run npm run register -- --desktop (Claude Desktop) or edit that entry`);
   return finish();
 }
 

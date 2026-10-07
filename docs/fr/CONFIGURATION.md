@@ -33,6 +33,12 @@ Le tableau ci-dessous répertorie chaque paramètre de configuration disponible 
 | `azgaarDist` | string | `"upstream/azgaar/dist-electron/renderer"` | Chemin vers le dossier des ressources web statiques compilées d'Azgaar contenant `index.html`. | À modifier si vous installez ou compilez Azgaar dans un dossier personnalisé. |
 | `azgaarPackage` | string | `"upstream/azgaar/package.json"` | Chemin vers le fichier `package.json` d'Azgaar utilisé pour détecter la version installée. | À modifier si l'arborescence des sources d'Azgaar se trouve dans un dossier différent. |
 | `mapsDir` | string | `"maps"` | Dossier où sont stockés les fichiers de carte utilisateur, les sauvegardes automatiques et les instantanés de l'historique d'annulation. | À modifier pour stocker vos cartes dans un autre répertoire ou dans un dossier cloud synchronisé. |
+| `presetsFile` | string | `"layer-presets.json"` | Chemin vers le fichier où sont enregistrés les préréglages de calques personnalisés. | À modifier pour utiliser un autre fichier de préréglages de calques. |
+| `layerPresets` | object | `{ ... }` | Préréglages de calques fournis associant chaque nom à une liste de calques. | Permet de personnaliser les préréglages de calques par défaut. |
+| `layerPresets.topography` | array of strings | `["lakes", ...]` | Préréglage affichant les calques de relief topographique. | Jeu de calques pour la topographie. |
+| `layerPresets.biomes` | array of strings | `["lakes", ...]` | Préréglage affichant les biomes écologiques. | Jeu de calques pour les biomes. |
+| `layerPresets.political` | array of strings | `["lakes", ...]` | Préréglage affichant les frontières politiques, États et provinces. | Jeu de calques pour la politique. |
+| `layerPresets.lore-clean` | array of strings | `["lakes", ...]` | Préréglage affichant les terres, biomes et étiquettes épurés sans marqueurs de jeu. | Jeu de calques pour la cartographie propre. |
 | `exportsDir` | string | `"exports"` | Dossier où sont écrites les images, les fichiers de données et les fichiers `.map` exportés. | À modifier pour diriger les fichiers exportés vers un autre dossier. |
 | `profileDir` | string | `".browser-profile"` | Dossier contenant les données utilisateur du navigateur et le stockage local entre les lancements. | À modifier si vous souhaitez un profil de navigateur distinct ou s'il doit être stocké sur un disque spécifique. |
 | `startup` | string (`"autosave"` ou `"new"`) | `"autosave"` | Action effectuée à l'ouverture du navigateur : `"autosave"` restaure la carte de la dernière session ; `"new"` crée une nouvelle carte aléatoire. | Réglez sur `"new"` si vous préférez commencer avec un nouveau monde procédural à chaque lancement. |
@@ -44,17 +50,18 @@ Le tableau ci-dessous répertorie chaque paramètre de configuration disponible 
 | `browser.channel` | string ou null | `"chrome"` | Canal principal de distribution du navigateur utilisé par Playwright (`"chrome"` ou `"msedge"`). Définissez sur `null` si vous spécifiez `browser.executablePath`. | Passez à `"msedge"` si Google Chrome n'est pas installé sur votre ordinateur, ou `null` si vous utilisez un binaire personnalisé. |
 | `browser.executablePath` | string ou null | `null` | Chemin absolu vers l'exécutable d'un navigateur spécifique. | Renseignez ce champ si votre navigateur est installé dans un emplacement non standard ou si vous utilisez Chromium. |
 | `browser.headless` | boolean | `false` | Exécute le navigateur sans fenêtre visible lorsque défini sur `true`. | Passez à `true` pour l'exécuter discrètement en arrière-plan sur un serveur ou lorsque le retour visuel n'est pas nécessaire. |
-| `browser.viewport` | object | `{ width: 1280, height: 720 }` | Dimensions de la zone d'affichage (viewport) en pixels d'écran pour la fenêtre du navigateur. | À modifier pour personnaliser la taille de la zone d'affichage du navigateur. |
-| `browser.viewport.width` | integer (min 320) | `1280` | Largeur de la zone d'affichage du navigateur en pixels. | À modifier si vous souhaitez un affichage de carte plus large ou des captures d'écran de plus haute résolution. |
-| `browser.viewport.height` | integer (min 240) | `720` | Hauteur de la zone d'affichage du navigateur en pixels. | À modifier si vous souhaitez un affichage de carte plus haut ou des captures d'écran de plus haute résolution. |
+| `browser.viewport` | object | `{ width: 1920, height: 1080 }` | Dimensions de la zone d'affichage (viewport) en pixels d'écran pour la fenêtre du navigateur. | À modifier pour personnaliser la taille de la zone d'affichage du navigateur. |
+| `browser.viewport.width` | integer (min 320) | `1920` | Largeur de la zone d'affichage du navigateur en pixels. | À modifier si vous souhaitez un affichage de carte plus large ou des captures d'écran de plus haute résolution. |
+| `browser.viewport.height` | integer (min 240) | `1080` | Hauteur de la zone d'affichage du navigateur en pixels. | À modifier si vous souhaitez un affichage de carte plus haut ou des captures d'écran de plus haute résolution. |
 | `browser.readyTimeoutMs` | integer (min 1000) | `120000` | Délai maximal en millisecondes d'attente pour qu'Azgaar et la passerelle finissent de charger. | Augmentez cette valeur sur les ordinateurs plus lents si le démarrage expire pendant la génération initiale de la carte. |
 | `browser.args` | array of strings | `[]` | Arguments de ligne de commande supplémentaires transmis directement au processus du navigateur. | Ajoutez des drapeaux si votre environnement nécessite des arguments Chromium spécifiques (par exemple `--no-sandbox` dans les conteneurs). |
 | `browser.fallbackChannels` | array of strings | `["msedge"]` | Canaux de secours pour le navigateur à tenter si le `browser.channel` principal n'est pas installé. | À modifier pour ajouter ou réordonner les navigateurs de secours. |
 | `browser.seedStorage` | object (chaînes clé-valeur) | `{"fmg-disable-click-arrow-tooltip": "true"}` | Paires clé-valeur insérées dans le `localStorage` du navigateur avant le chargement de la page. | Utilisez ce réglage pour masquer les fenêtres modales de bienvenue, les popups de mise à jour ou préconfigurer les réglages d'Azgaar dans le stockage. |
-| `map` | object | `{ seed: null, width: 1280, height: 720 }` | Dimensions et graine par défaut pour les nouvelles cartes procédurales. | À modifier pour définir des dimensions standard ou une graine fixe pour les cartes fraîchement générées. |
+| `browser.openOnStart` | boolean | `false` | Lorsque défini sur `false`, la fenêtre du navigateur ne s'ouvre qu'au premier appel d'un outil de carte plutôt qu'au démarrage du serveur. | Passez à `true` pour ouvrir la fenêtre dès le lancement du serveur. |
+| `map` | object | `{ seed: null, width: 1920, height: 1080 }` | Dimensions et graine par défaut pour les nouvelles cartes procédurales. | À modifier pour définir des dimensions standard ou une graine fixe pour les cartes fraîchement générées. |
 | `map.seed` | string ou null | `null` | Chaîne de graine utilisée lors de la génération d'une nouvelle carte. Si `null`, une graine aléatoire est sélectionnée. | Définissez un texte fixe (par exemple `"abc"` ; un simple nombre est refusé) pour générer des mondes reproductibles. |
-| `map.width` | integer (min 100) | `1280` | Largeur de carte par défaut dans les unités de coordonnées internes de la carte. | À modifier si vous souhaitez que les nouvelles cartes générées aient une largeur par défaut différente. |
-| `map.height` | integer (min 100) | `720` | Hauteur de carte par défaut dans les unités de coordonnées internes de la carte. | À modifier si vous souhaitez que les nouvelles cartes générées aient une hauteur par défaut différente. |
+| `map.width` | integer (min 100) | `1920` | Largeur de carte par défaut dans les unités de coordonnées internes de la carte. | À modifier si vous souhaitez que les nouvelles cartes générées aient une largeur par défaut différente. |
+| `map.height` | integer (min 100) | `1080` | Hauteur de carte par défaut dans les unités de coordonnées internes de la carte. | À modifier si vous souhaitez que les nouvelles cartes générées aient une hauteur par défaut différente. |
 | `history` | object | `{ maxEntries: 30 }` | Paramètres groupés pour l'historique d'annulation et de rétablissement. | À modifier pour ajuster le nombre d'états d'annulation conservés. |
 | `history.maxEntries` | integer (min 1) | `30` | Nombre maximal d'états d'annulation conservés sur le disque dans `maps/history`. | Augmentez pour un historique d'annulation plus profond, ou diminuez pour économiser de l'espace disque. |
 | `autosave` | object | `{ intervalSec: 60 }` | Paramètres groupés pour les sauvegardes périodiques de la carte. | À modifier pour ajuster la fréquence des sauvegardes en arrière-plan. |
@@ -65,6 +72,24 @@ Le tableau ci-dessous répertorie chaque paramètre de configuration disponible 
 | `view.settleMs` | integer (min 0) | `200` | Délai d'attente en millisecondes pour laisser le DOM du navigateur se stabiliser après des modifications avant de prendre une capture d'écran. | Augmentez si les captures d'écran se produisent avant la fin des animations de la carte ou du réaffichage. |
 | `view.maxImageBytes` | integer (min 10000) | `900000` | Taille maximale de capture d'écran en octets avant que le format PNG ne bascule automatiquement en compression JPEG. | À ajuster si votre client d'IA rejette les images dépassant une taille de données spécifique. |
 | `view.textOnly` | boolean | `false` | Lorsque défini sur `true`, renvoie les cartes sous forme de grilles de caractères (art ASCII) au lieu d'images. | À activer lors de l'utilisation de modèles d'IA qui n'acceptent pas les images en entrée. |
+| `export` | object | `{ ... }` | Configuration par défaut pour les exports d'images de cartes (`map_export`). | Définissez le format d'image, la qualité et le mode épuré pour les exports. |
+| `export.format` | string (`"png"` ou `"jpeg"`) | `"png"` | Format d'image par défaut pour `map_export`. | Réglez sur `"jpeg"` pour des fichiers exportés plus légers. |
+| `export.jpegQuality` | integer (1 à 100) | `92` | Qualité de compression par défaut utilisée pour les exports JPEG. | Ajustez l'équilibre entre poids du fichier et netteté de l'image. |
+| `export.maxPixels` | integer (min 100) | `10000` | Dimension maximale en pixels (largeur ou hauteur) autorisée lors de l'export d'images haute résolution. | Augmentez si votre machine supporte de plus grandes dimensions de rendu. |
+| `export.clean` | boolean | `false` | Lorsque défini sur `true`, masque automatiquement les pictogrammes de jeu (ancres de port, routes, marqueurs, glace) lors des exports. | Activez par défaut pour toujours exporter des cartes géographiques épurées. |
+| `export.cleanHide` | array of strings | `["#anchors", ...]` | Sélecteurs CSS masqués lorsque le mode épuré est actif. | Ajoutez des sélecteurs pour masquer des éléments visuels supplémentaires. |
+| `view3d` | object | `{ ... }` | Configuration et préréglages par défaut pour les rendus 3D (`map_3d`). | Ajustez la qualité 3D, les formats, les décalages de caméra et les préréglages. |
+| `view3d.format` | string (`"png"`, `"jpeg"`, ou `"webp"`) | `"png"` | Format d'image par défaut pour les captures 3D. | Choisissez `"jpeg"` ou `"webp"` pour des fichiers plus légers. |
+| `view3d.quality` | integer (1 à 100) | `92` | Qualité de compression pour les captures 3D en JPEG ou WebP. | Ajustez la netteté versus la taille du fichier. |
+| `view3d.hemisphereOffset` | number | `0.25` | Décalage en longitude appliqué lors du rendu des deux hémisphères sur un globe. | Ajuste la séparation visuelle pour les scènes de globe en deux hémisphères. |
+| `view3d.presets` | object | `{ ... }` | Préréglages intégrés pour les vues 3D. | Personnalisez les configurations utilisées par `map_3d`. |
+| `view3d.presets.satellite` | object | `{ ... }` | Préréglage de scène de relief satellite procédurale. | Scène de relief avec texture satellite procédurale. |
+| `view3d.presets.satellite.satellite` | boolean | `true` | Active les textures satellites procédurales sur le relief. | Active la coloration de surface satellite. |
+| `view3d.presets.satellite.erosion` | boolean | `false` | Active l'érosion hydraulique du relief sur le maillage 3D. | Active les détails de terrain érodé. |
+| `view3d.presets.heightmap` | object | `{ ... }` | Préréglage de scène de relief avec texture de carte des hauteurs. | Scène de relief texturée avec le préréglage topographique. |
+| `view3d.presets.heightmap.layerPreset` | string | `"topography"` | Préréglage de calques utilisé comme texture de terrain. | Modifie la combinaison de calques servant de texture. |
+| `view3d.presets.biomes` | object | `{ ... }` | Préréglage de scène de relief avec texture des biomes. | Scène de relief texturée avec le préréglage des biomes. |
+| `view3d.presets.biomes.layerPreset` | string | `"biomes"` | Préréglage de calques utilisé comme texture de terrain. | Modifie la combinaison de calques servant de texture. |
 | `bridge` | object | `{}` | Remplacements clé-valeur appliqués à la passerelle intégrée à la page (`AgentConfig`). | Permet de personnaliser les styles visuels, les délais et les limites de la passerelle sans modifier les fichiers sources. |
 | `limits` | object | `{ ... }` | Limites de fonctionnement et seuils de sécurité pour les outils. | À modifier pour ajuster la pagination des outils, les plages de zoom ou les plafonds de délai d'attente. |
 | `limits.listMax` | integer | `1000` | Plafond strict sur le nombre d'éléments renvoyés par les outils de liste d'entités (`map_list`). | À modifier si vous devez récupérer de plus grands lots d'entités en un seul appel d'outil. |
@@ -131,6 +156,31 @@ La passerelle s'exécute à l'intérieur de la page web et gère les requêtes s
 | `uiOptionsMax` | number | `40` | Nombre maximal d'options sélectionnables renvoyées par champ de saisie lors de l'inspection des contrôles de boîte de dialogue. |
 | `uiTextMax` | number | `1500` | Nombre maximal de caractères de texte renvoyés lors de l'inspection de fenêtres de dialogue ouvertes. |
 | `menuListMax` | number | `200` | Nombre maximal d'actions renvoyées par défaut lors de l'interrogation du menu d'actions d'Azgaar avec `map_menu list`. |
+| `legendMarginPct` | number | `0.02` | Marge extérieure autour des boîtes de légende en pourcentage de la dimension de la carte. |
+| `legendHeightSteps` | number | `10` | Nombre de bandes de courbes de niveau affichées dans la légende de relief. |
+| `legendLongItems` | number | `60` | Seuil d'éléments de légende au-delà duquel un avertissement conseille de filtrer par État ou d'ajouter des colonnes. |
+| `legendSeaSteps` | number | `3` | Nombre de paliers de profondeur océanique affichés dans la légende d'altitude. |
+| `legendRainSamples` | number | `64` | Nombre d'échantillons utilisés pour calculer les paliers de couleur de la légende des précipitations. |
+| `legendPopulationBarPx` | number | `140` | Largeur en pixels de la barre visuelle de répartition dans les légendes de population. |
+| `legendMarketColor` | string | `"#664422"` | Nuance de couleur principale utilisée pour les éléments de la légende des marchés. |
+| `legendTradeLandColor` | string | `"#aa6622"` | Nuance de couleur pour les routes commerciales terrestres dans la légende du commerce. |
+| `legendTradeWaterColor` | string | `"#2266aa"` | Nuance de couleur pour les routes commerciales maritimes dans la légende du commerce. |
+| `annotationHaloColor` | string | `"#ffffff"` | Couleur du contour de halo protecteur dessiné autour du texte d'annotation. |
+| `annotationColor` | string | `"#cc3333"` | Couleur de tracé par défaut pour les flèches, lignes, marqueurs et zones d'annotations. |
+| `annotationMarkerRadius` | number | `4` | Rayon en pixels d'écran des marqueurs d'annotation. |
+| `annotationFontSize` | number | `13` | Taille de police par défaut en pixels pour les textes d'annotation. |
+| `annotationStrokeWidth` | number | `2` | Épaisseur de trait en pixels pour les lignes, flèches et contours d'annotations. |
+| `annotationAreaOpacity` | number | `0.25` | Opacité du fond pour les polygones de zones annotées. |
+| `annotationTextMax` | number | `80` | Longueur maximale de caractères acceptée pour une étiquette de texte d'annotation. |
+| `temperatureMin` | number | `-30` | Température minimale de référence en degrés Celsius pour la légende de température. |
+| `temperatureMax` | number | `40` | Température maximale de référence en degrés Celsius pour la légende de température. |
+| `view3dPollMs` | number | `80` | Intervalle de scrutation en millisecondes lors de l'attente de stabilisation de la scène 3D. |
+| `view3dStableReads` | number | `3` | Nombre de lectures stables consécutives requises avant de considérer la vue 3D prête. |
+| `view3dTimeoutMs` | number | `8000` | Temps maximal en millisecondes d'attente de stabilisation d'une scène 3D avant capture. |
+| `view3dStableDiff` | number | `0.5` | Variance maximale de pixels autorisée entre deux trames consécutives pour juger le rendu 3D stabilisé. |
+| `view3dSampleSize` | number | `64` | Dimension de la sonde d'échantillonnage en pixels pour détecter les mouvements sur le canevas 3D. |
+| `view3dTextureMax` | number | `4096` | Plafond de résolution de texture pour le rendu de terrain en 3D. |
+| `view3dDefaultDistance` | object | `{ relief: 1000, globe: 1800 }` | Distance de caméra par défaut en unités de scène pour les vues relief et globe. |
 
 ## Options de ligne de commande des scripts
 

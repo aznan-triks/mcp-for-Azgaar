@@ -18,6 +18,7 @@ function config() {
   cfg.browser.args = args;
   cfg.profileDir = join(work, `profile-${Math.random().toString(36).slice(2)}`);
   cfg.map.seed = "333";
+  cfg.browser.viewport = { width: 1280, height: 720 }; cfg.map.width = 1280; cfg.map.height = 720;
   return cfg;
 }
 

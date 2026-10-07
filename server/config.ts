@@ -7,6 +7,8 @@ const schema = z.object({
   azgaarDist: z.string(),
   azgaarPackage: z.string(),
   mapsDir: z.string(),
+  presetsFile: z.string().default("layer-presets.json"),
+  layerPresets: z.record(z.string(), z.array(z.string())).default({}),
   exportsDir: z.string(),
   profileDir: z.string(),
   startup: z.enum(["autosave", "new"]),
@@ -18,6 +20,7 @@ const schema = z.object({
     seedStorage: z.record(z.string(), z.string()),
     executablePath: z.string().nullable(),
     headless: z.boolean(),
+    openOnStart: z.boolean().default(false),
     viewport: z.object({ width: z.number().int().min(320), height: z.number().int().min(240) }),
     readyTimeoutMs: z.number().int().min(1000),
     args: z.array(z.string())
@@ -26,7 +29,31 @@ const schema = z.object({
   history: z.object({ maxEntries: z.number().int().min(1) }),
   autosave: z.object({ intervalSec: z.number().min(0) }), // 0 turns the periodic save off (saves after each edit remain)
   view: z.object({ format: z.enum(["png", "jpeg"]), jpegQuality: z.number().int().min(1).max(100), settleMs: z.number().int().min(0), maxImageBytes: z.number().int().min(10000), textOnly: z.boolean().default(false) }),
-  limits: z.object({ listMax: z.number().int(), zoomMin: z.number(), zoomMax: z.number(), cameraMsMax: z.number().int(), scaleTolerance: z.number(), mapSizeMin: z.number().int(), mapSizeMax: z.number().int(), exportTimeoutMs: z.number().int().min(1000) }),
+  export: z.object({
+    format: z.enum(["png", "jpeg"]).default("png"),
+    jpegQuality: z.number().int().min(1).max(100).default(92),
+    maxPixels: z.number().int().min(100).default(10000),
+    clean: z.boolean().default(false),
+    cleanHide: z.array(z.string()).default(["#anchors", "#routes", "#markers", "#ice"])
+  }).default({ format: "png", jpegQuality: 92, maxPixels: 10000, clean: false, cleanHide: ["#anchors", "#routes", "#markers", "#ice"] }),
+  view3d: z.object({
+    format: z.enum(["png", "jpeg", "webp"]).default("png"),
+    quality: z.number().int().min(1).max(100).default(92),
+    hemisphereOffset: z.number().min(0).max(0.5).default(0.25),
+    presets: z.record(z.string(), z.object({ satellite: z.boolean().optional(), erosion: z.boolean().optional(), layerPreset: z.string().optional() })).default({})
+  }).default({ format: "png", quality: 92, hemisphereOffset: 0.25, presets: {} }),
+  limits: z.object({
+    listMax: z.number().int(),
+    zoomMin: z.number(),
+    zoomMax: z.number(),
+    cameraMsMax: z.number().int(),
+    scaleTolerance: z.number(),
+    imageBytesMin: z.number().int().default(10000),
+    imageBytesMax: z.number().int().default(50000000),
+    mapSizeMin: z.number().int(),
+    mapSizeMax: z.number().int(),
+    exportTimeoutMs: z.number().int().min(1000)
+  }),
   bridge: z.record(z.string(), z.unknown())
 });
 

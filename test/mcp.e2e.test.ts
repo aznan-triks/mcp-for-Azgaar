@@ -1,6 +1,6 @@
 // End-to-end: a real MCP client talks to the real server over stdio, which drives a real browser on a real (seeded) map.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +20,7 @@ base.browser.channel = process.env.FMG_TEST_CHANNEL ?? null;
 base.browser.executablePath = process.env.FMG_TEST_CHROMIUM ?? null;
 base.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
 base.map.seed = SEED;
+base.browser.viewport = { width: 1280, height: 720 }; base.map.width = 1280; base.map.height = 720;
 base.server.port = 0;
 base.exportsDir = join(work, "exports");
 base.allowEval = true;
@@ -77,7 +78,7 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     const guide = client.getInstructions() ?? "";
     for (const word of ["map_summary", "map_list with name", "ring", "mergeStates", "map_layers", "scope all"]) assert.ok(guide.includes(word), `instructions must mention: ${word}`);
     const names = (await client.listTools()).tools.map(t => t.name);
-    for (const n of ["map_view", "map_summary", "map_locate", "map_list", "map_select", "map_commands", "map_apply", "map_undo", "map_camera", "map_layers", "map_file", "map_status", "map_export", "map_menu", "map_ui", "map_options", "map_eval"]) assert.ok(names.includes(n), `missing ${n}`);
+    for (const n of ["map_view", "map_summary", "map_locate", "map_list", "map_select", "map_commands", "map_apply", "map_undo", "map_camera", "map_layers", "map_file", "map_status", "map_export", "map_menu", "map_ui", "map_options", "map_legend", "map_3d", "map_eval"]) assert.ok(names.includes(n), `missing ${n}`);
   });
 
   it("draws the map in characters, with no image, for models that cannot see", async () => {
@@ -354,9 +355,31 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     assert.ok(readFileSync(csv.file, "utf8").split("\n").length > 10, "csv rows");
     const saved = json(await ok("map_export", { format: "map", name: "t-save" }));
     assert.ok(readFileSync(saved.file, "utf8").length > 10000, ".map file");
+    const cleanExp = json(await ok("map_export", { format: "png", clean: true, name: "t-clean" }));
+    assert.equal(cleanExp.clean, true);
     await ok("map_layers", { preset: "political" });
     assert.ok(json(await ok("map_layers")).active.includes("states"), "a preset restores the political layers");
     assert.ok((await call("map_layers", { preset: "nope" })).isError);
+  });
+
+  it("takes 3D pictures: relief, globe, two hemispheres", async () => {
+    const relief = await ok("map_3d", { mode: "relief", preset: "biomes", clean: true, texture_resolution: 1024, name: "e2e 3d relief" });
+    const r = json(relief);
+    assert.equal(r.saved.length, 1);
+    assert.ok(relief.content.some(p => p.type === "image"), "an inline picture comes back");
+    assert.equal(readFileSync(r.saved[0].file).subarray(1, 4).toString(), "PNG");
+    assert.equal(r.preset, "biomes");
+    const globe = json(await ok("map_3d", { mode: "globe", hemispheres: "both", texture_resolution: 1024, output: "webp", name: "e2e 3d globe" }));
+    assert.deepEqual(globe.saved.map((x: any) => x.view), ["west", "east"]);
+    assert.ok(globe.saved.every((x: any) => /\.webp$/.test(x.file) && x.bytes > 100));
+    assert.ok(globe.globe.mapLongitudeDegrees > 0 && globe.globe.mapPx.width > 0, "the globe reports how the map sits on the planet");
+    const sat = await call("map_3d", { mode: "relief", preset: "satellite", texture_resolution: 1024, name: "e2e 3d sat" });
+    assert.ok(!sat.isError, String(sat.content[0]?.text));
+    assert.ok((await call("map_3d", { mode: "globe", preset: "satellite" })).isError, "satellite on a globe is refused");
+    assert.ok((await call("map_3d", { mode: "relief", hemispheres: "both" })).isError, "hemispheres only for the globe");
+    const status = json(await ok("map_status"));
+    assert.deepEqual(status.blockedOutsideRequests, [], "3D stays offline");
+    assert.equal(json(await ok("map_eval", { code: "return FMG_AGENT.is3dOpen()" })).result, false, "the flat map is back");
   });
 
   it("runs Azgaar's own actions (regenerate, editors) and can undo them", async () => {
@@ -437,4 +460,55 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     assert.deepEqual(released.pinned, {}, "everything is random again");
     assert.ok((await call("map_options", { action: "set", values: { app: 1 } })).isError, "unknown keys are refused");
   });
+
+  it("legends, built-in layer presets, river names and loading a map by absolute path work through MCP", async () => {
+    const boxes = async (): Promise<string[]> => {
+      await ok("map_file", { action: "save", name: "legend-probe" });
+      const saved = readFileSync(join(mapsDir, "legend-probe.map"), "utf8");
+      return [...saved.matchAll(/data-legend="([^"]+)"/g)].map(m => m[1] as string);
+    };
+    assert.ok((await client.listTools()).tools.some(t => t.name === "map_legend"), "map_legend is listed");
+    const shown = await ok("map_legend", { action: "show", layer: "biomes", corner: "bottom-right" });
+    assert.equal(shown.content.find(p => p.type === "text")?.text?.includes("Biomes"), true);
+    assert.deepEqual(await boxes(), ["Biomes"]);
+    await ok("map_legend", { action: "show", layer: "custom", title: "Mine", items: "#aa3355=Dry lands;#3355aa=Wet lands", corner: "top-left" });
+    assert.deepEqual((await boxes()).sort(), ["Biomes", "Mine"]);
+    const bad = await call("map_legend", { action: "show", layer: "custom", items: "oops" });
+    assert.equal(bad.isError, true, "a malformed custom legend is an error");
+    await ok("map_undo", { action: "undo" });
+    assert.deepEqual(await boxes(), ["Biomes"], "undo removes the last legend only");
+    await ok("map_legend", { action: "hide_all" });
+    assert.deepEqual(await boxes(), []);
+
+    const built = json(await ok("map_layers", { preset: "political" }));
+    assert.ok(built.active.includes("states") && built.active.includes("provinces") && !built.active.includes("heightmap"), "built-in political preset");
+    assert.ok(json(await ok("map_layers")).presets.includes("topography"));
+
+    const river = json(await ok("map_list", { kind: "rivers", limit: 1 })).rows[0];
+    const renamed = json(await ok("map_apply", { command: "rename", params: { kind: "river", id: river.id, name: "Fleuve Test" } }));
+    assert.equal(renamed.result.details.to, "Fleuve Test");
+    assert.ok(JSON.stringify(json(await ok("map_list", { kind: "rivers", name: "Fleuve Test" }))).includes("Fleuve Test"));
+
+    await ok("map_file", { action: "save", name: "path-source" });
+    const outside = join(work, "elsewhere");
+    mkdirSync(outside, { recursive: true });
+    const target = join(outside, "from-vault.map");
+    copyFileSync(join(mapsDir, "path-source.map"), target);
+    const loaded = json(await ok("map_file", { action: "load", path: target }));
+    assert.equal(loaded.loaded, target);
+    assert.equal((await call("map_file", { action: "load", path: "relative/x.map" })).isError, true, "a relative path is refused");
+    assert.equal((await call("map_file", { action: "save", name: "x", path: target })).isError, true, "path only works with load");
+  });
+
+  it("the browser does not open when the server starts, only at the first map tool", async () => {
+    await client.close();
+    client = await connect();
+    const idle = json(await ok("map_status"));
+    assert.equal(idle.browserOpen, false, "map_status must not open the window");
+    assert.equal((await ok("map_file", { action: "list" })).isError ?? false, false, "listing saved maps needs no window");
+    assert.equal(json(await ok("map_status")).browserOpen, false);
+    await ok("map_summary");
+    assert.equal(json(await ok("map_status")).browserOpen, true, "the first map tool opens it");
+  });
 });
+

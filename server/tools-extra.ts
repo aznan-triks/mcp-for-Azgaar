@@ -19,6 +19,8 @@ export interface Kit {
   viewContent: () => Promise<Content>;
   settle: () => Promise<void>;
   autosave: () => Promise<void>;
+  loadPresets: () => Record<string, string[]>;
+  safeName: (raw: string) => string;
 }
 
 /** Azgaar's own export actions that are not pictures (each is one entry of its action menu). */
@@ -48,7 +50,7 @@ const FORMATS = [...PICTURES, "map", ...Object.keys(MENU_EXPORTS)] as [string, .
 const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg" };
 
 export function registerExtraTools(kit: Kit): void {
-  const { server, cfg, session, history, guarded, text, viewContent, settle, autosave } = kit;
+  const { server, cfg, session, history, guarded, text, viewContent, settle, autosave, loadPresets, safeName } = kit;
 
   /** Runs something that may change the map: undo snapshot first, dropped again if nothing changed. */
   const undoable = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
@@ -71,38 +73,137 @@ export function registerExtraTools(kit: Kit): void {
     {
       title: "Export the map to a file",
       description:
-        `Exports exactly what Azgaar's Export menu exports, into the exports folder (the path is returned). Pictures: svg, png, jpeg (what is on screen NOW: choose the layers first, here or with map_layers), tiles (zip of png tiles). map = the .map save file. Data: json-* (full, minimal, pack/grid cells), geojson-* (cells, routes, rivers, markers, zones), csv-* (burgs, biomes, relations, goods, markers, markets, military, regiments, notes, zones). Options: only_layers = show exactly these layers and hide the others (e.g. ["heightmap","cultures"]); layer_preset = one of Azgaar's layer presets (political, cultural, religions, provinces, biomes, heightmap, physical...); resolution = picture scale factor; name = file name. The whole map is framed for pictures. A png/jpeg is also returned as an image unless the model cannot see images.`,
+        `Exports exactly what Azgaar's Export menu exports, into the exports folder (the path is returned). Pictures: svg, png, jpeg (what is on screen NOW: choose the layers first, here or with map_layers), tiles (zip of png tiles). map = the .map save file. Data: json-* (full, minimal, pack/grid cells), geojson-* (cells, routes, rivers, markers, zones), csv-* (burgs, biomes, relations, goods, markers, markets, military, regiments, notes, zones). Options: only_layers = show exactly these layers and hide the others (e.g. ["heightmap","cultures"]); layer_preset = one of Azgaar's layer presets (political, cultural, religions, provinces, biomes, heightmap, physical...); resolution = picture scale factor; clean = true forces port anchors, routes, markers and ice off (default from export.clean); name = file name. The whole map is framed for pictures. A png/jpeg is also returned as an image unless the model cannot see images.`,
       inputSchema: {
         format: z.enum(FORMATS),
         name: z.string().optional(),
         only_layers: z.array(z.string()).optional(),
         layer_preset: z.string().optional(),
-        resolution: z.number().positive().optional()
+        resolution: z.number().positive().optional(),
+        clean: z.boolean().optional()
       }
     },
-    guarded(async ({ format, name, only_layers, layer_preset, resolution }) => {
+    guarded(async ({ format, name, only_layers, layer_preset, resolution, clean }) => {
       mkdirSync(cfg.exportsDir, { recursive: true });
       const isPicture = (PICTURES as readonly string[]).includes(format);
       if (only_layers?.length || layer_preset) await session.call("setLayers", { only: only_layers, preset: layer_preset });
       if (isPicture) await session.call("setCamera", { scale: 1, duration: 0 });
+      const wantsClean = clean ?? cfg.export.clean;
       let result: { file: string; bytes: number };
-      if (format === "map") {
-        const safe = (name ?? `map-${Date.now()}`).replace(/[^A-Za-z0-9._ -]/g, "_").replace(/\.map$/i, "");
-        const file = join(cfg.exportsDir, `${safe}.map`);
-        writeFileSync(file, await session.call<string>("exportMap"));
-        result = { file, bytes: statSync(file).size };
-      } else if (isPicture) {
-        result = await session.captureDownload(() => session.call("exportPicture", { format, resolution }), name);
-      } else {
-        result = await session.captureDownload(() => session.call("menuRun", { id: MENU_EXPORTS[format] }), name);
+      try {
+        if (isPicture && wantsClean) await session.call("setCleanMode", true, cfg.export.cleanHide);
+        if (format === "map") {
+          const safe = (name ?? `map-${Date.now()}`).replace(/[^A-Za-z0-9._ -]/g, "_").replace(/\.map$/i, "");
+          const file = join(cfg.exportsDir, `${safe}.map`);
+          writeFileSync(file, await session.call<string>("exportMap"));
+          result = { file, bytes: statSync(file).size };
+        } else if (isPicture) {
+          result = await session.captureDownload(() => session.call("exportPicture", { format, resolution }), name);
+        } else {
+          result = await session.captureDownload(() => session.call("menuRun", { id: MENU_EXPORTS[format] }), name);
+        }
+      } finally {
+        if (isPicture && wantsClean) await session.call("setCleanMode", false).catch(() => undefined);
       }
       const layers = await session.call<{ active: string[] }>("layers");
-      const content: Content[] = [text({ exported: format, file: result.file, bytes: result.bytes, layersOnScreen: layers.active })];
+      const content: Content[] = [text({ exported: format, file: result.file, bytes: result.bytes, layersOnScreen: layers.active, clean: wantsClean })];
       const ext = result.file.slice(result.file.lastIndexOf(".")).toLowerCase();
       if (MIME[ext] && !cfg.view.textOnly) {
         if (result.bytes <= cfg.view.maxImageBytes) content.unshift({ type: "image", data: readFileSync(result.file).toString("base64"), mimeType: MIME[ext] });
         else content.push(text("The picture is too large to attach here; it is saved at the path above."));
       }
+      return { content };
+    })
+  );
+
+  server.registerTool(
+    "map_3d",
+    {
+      title: "3D picture: relief scene or globe",
+      description:
+        "Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief only), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet. sun_position {x, y, z}; atmosphere = sky and horizon fog (relief); erosion (relief); height_scale (relief); distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.",
+      inputSchema: {
+        mode: z.enum(["relief", "globe"]),
+        preset: z.enum(Object.keys(cfg.view3d.presets) as [string, ...string[]]).optional(),
+        rotation: z.object({ x: z.number(), y: z.number() }).optional(),
+        hemispheres: z.enum(["single", "both"]).optional(),
+        sun_position: z.object({ x: z.number(), y: z.number(), z: z.number().optional() }).optional(),
+        atmosphere: z.boolean().optional(),
+        erosion: z.boolean().optional(),
+        height_scale: z.number().min(1).optional(),
+        distance: z.number().positive().optional(),
+        texture_resolution: z.number().int().min(1).optional(),
+        labels: z.boolean().optional(),
+        clean: z.boolean().optional(),
+        output: z.enum(["png", "jpeg", "webp"]).optional(),
+        name: z.string().optional(),
+        max_image_bytes: z.number().int().min(cfg.limits.imageBytesMin).max(cfg.limits.imageBytesMax).optional()
+      }
+    },
+    guarded(async args => {
+      const { mode, preset, rotation, hemispheres, sun_position, atmosphere, erosion, height_scale, distance, texture_resolution, labels, clean, output, name, max_image_bytes } = args;
+      const globe = mode === "globe";
+      if (hemispheres === "both" && !globe) throw new Error("map_3d: hemispheres both only exists for the globe");
+      const chosen = preset ? cfg.view3d.presets[preset] : undefined;
+      if (globe && (chosen?.satellite || erosion || chosen?.erosion)) throw new Error("map_3d: satellite and erosion only exist in relief mode");
+      const fmt = output ?? cfg.view3d.format;
+      const wantsClean = clean ?? cfg.export.clean;
+      const layerSet = chosen?.layerPreset ? loadPresets()[chosen.layerPreset] : undefined;
+      if (chosen?.layerPreset && !layerSet) throw new Error(`map_3d: layer preset "${chosen.layerPreset}" does not exist (see map_layers)`);
+      const layersBefore = layerSet ? (await session.call<{ active: string[] }>("layers")).active : null;
+      const notes: string[] = [];
+      const shots: { label: string; file: string; widthPx: number; heightPx: number; bytes: number; inline: Content }[] = [];
+      let globeInfo: Record<string, unknown> | undefined;
+      let opened: Record<string, unknown> | undefined;
+      const limit = max_image_bytes ?? cfg.view.maxImageBytes;
+      mkdirSync(cfg.exportsDir, { recursive: true });
+      const base = name ? safeName(name) : `map-3d-${mode}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+      const preview = async (): Promise<Content> => {
+        const small = await session.call<{ data: string; mimeType: string }>("capture3d", "jpeg", cfg.view.jpegQuality);
+        return { type: "image", data: small.data, mimeType: small.mimeType };
+      };
+      const take = async (label: string | null): Promise<void> => {
+        const pic = await session.call<{ data: string; mimeType: string; width: number; height: number }>("capture3d", fmt, cfg.view3d.quality);
+        const bytes = Buffer.from(pic.data, "base64");
+        const file = join(cfg.exportsDir, `${base}${label ? `-${label}` : ""}.${fmt === "jpeg" ? "jpg" : fmt}`);
+        writeFileSync(file, bytes);
+        const inline: Content = bytes.length <= limit && fmt !== "webp" ? { type: "image", data: pic.data, mimeType: pic.mimeType } : await preview();
+        shots.push({ label: label ?? mode, file, widthPx: pic.width, heightPx: pic.height, bytes: bytes.length, inline });
+      };
+      try {
+        if (layerSet) await session.call("setLayers", { only: layerSet });
+        if (wantsClean) await session.call("setCleanMode", true, cfg.export.cleanHide);
+        const first = hemispheres === "both" ? { x: 0, y: rotation?.y ?? 0 } : rotation;
+        opened = await session.call<Record<string, unknown>>("open3d", {
+          mode,
+          satellite: chosen?.satellite,
+          erosion: erosion ?? chosen?.erosion,
+          atmosphere,
+          sun: sun_position,
+          scale: height_scale,
+          textureResolution: texture_resolution,
+          labels,
+          rotation: first,
+          distance
+        });
+        if (opened.finished === false) notes.push("the 3D picture was still changing when the wait ran out: ask again, or lower texture_resolution");
+        if (globe) globeInfo = await session.call<Record<string, unknown>>("globeInfo");
+        if (hemispheres === "both") {
+          if (rotation && rotation.x !== 0) notes.push("rotation.x is ignored with hemispheres both (the two views are centred on the west and east halves of the map)");
+          const span = Number(globeInfo?.mapLongitudeDegrees ?? 0);
+          const shift = span * cfg.view3d.hemisphereOffset;
+          for (const [label, x] of [["west", -shift], ["east", shift]] as const) {
+            await session.call("view3d", { x, y: rotation?.y ?? 0, distance });
+            await take(label);
+          }
+        } else await take(null);
+      } finally {
+        await session.call("close3d").catch(() => undefined);
+        if (wantsClean) await session.call("setCleanMode", false).catch(() => undefined);
+        if (layersBefore) await session.call("setLayers", { only: layersBefore }).catch(() => undefined);
+      }
+      const content: Content[] = shots.map(s => s.inline);
+      content.push(text({ saved: shots.map(s => ({ view: s.label, file: s.file, widthPx: s.widthPx, heightPx: s.heightPx, bytes: s.bytes })), format: fmt, mode, preset: preset ?? null, clean: wantsClean, settings: opened?.settings, globe: globeInfo, notes }));
       return { content };
     })
   );

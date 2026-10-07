@@ -10,6 +10,7 @@ const work = join(dirname(fileURLToPath(import.meta.url)), "..", ".test-tmp");
 cfg.browser.headless = true;
 cfg.profileDir = join(work, `profile-${process.pid}`);
 cfg.map.seed = "333";
+cfg.browser.viewport = { width: 1280, height: 720 }; cfg.map.width = 1280; cfg.map.height = 720;
 if (process.env.FMG_TEST_CHROMIUM) { cfg.browser.executablePath = process.env.FMG_TEST_CHROMIUM; cfg.browser.channel = null; }
 cfg.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
 const web = await startStaticServer(cfg.azgaarDist, cfg.server.host, 0);
@@ -601,7 +602,152 @@ await restoreFeatures();
   await A(t => FMG_AGENT.importMap(t), featureBase);
 }
 
+// ---- legends and river names
+{
+  await A(t => FMG_AGENT.importMap(t), featureBase);
+  const boxes = () => A(() => Array.from(document.querySelectorAll("#legend > g[data-legend]")).map(n => n.dataset.legend));
+  const apply = (params) => A(async (p) => { try { return await FMG_AGENT.apply("legend", p); } catch (e) { return { error: e.message }; } }, params);
+  await A(() => document.getElementById("legend").setAttribute("transform", "translate(1690, 931)"));
+  for (const layer of ["states", "provinces", "cultures", "religions", "biomes", "zones", "heightmap", "temperature", "precipitation", "population", "routes", "markets", "trade"]) {
+    const r = await apply({ action: "show", layer });
+    check(`legend ${layer}: box drawn with items`, r.ok === true && r.details.items.length > 0, r.error ?? `${r.details?.items.length} items`);
+  }
+  check("legend: the layer's leftover shift is removed so boxes stay on the canvas", (await A(() => document.getElementById("legend").getAttribute("transform"))) === null);
+  const wide = await apply({ action: "show", layer: "provinces" });
+  check("legend: a very long legend is flagged with how to shorten it", Array.isArray(wide.warnings) && wide.warnings.some(w => w.includes("state")), JSON.stringify(wide.warnings));
+  await apply({ action: "hide", layer: "provinces" });
+  const onCanvas = await A(() => Array.from(document.querySelectorAll("#legend > g[data-legend]")).every(n => { const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(n.getAttribute("transform") ?? ""); return m && Number(m[1]) > -50 && Number(m[2]) > -50 && Number(m[1]) < window.innerWidth && Number(m[2]) < window.innerHeight; }));
+  check("legend: every box sits inside the window", onCanvas);
+  check("legend: a box is named like Azgaar's own editor boxes", (await boxes()).includes("States") && (await boxes()).includes("Biomes"));
+  const noColour = await A(() => Array.from(document.querySelectorAll("#legend > g[data-legend] rect[fill]")).filter(r => !/^(#[0-9a-f]{3,8}|url\(#[\w-]+\))$/i.test(r.getAttribute("fill")) && r.getAttribute("class") !== "legendBox").map(r => r.getAttribute("fill")));
+  check("legend: swatches are plain hex colours or patterns (they survive a save)", noColour.length === 0, noColour.slice(0, 3).join(" "));
+  const list = await apply({ action: "show", layer: "provinces", state: sum.states[0].id });
+  check("legend provinces: one state's provinces only", list.ok === true && list.details.items.length < 40, `${list.details?.items.length}`);
+  const custom = await apply({ action: "show", layer: "custom", title: "Mine", items: "#aa3355=Dry, lands;#3355aa=Wet | lands", corner: "top-left", columns: 7, opacity: 0.5 });
+  check("legend custom: commas and bars in a label are cleaned", custom.ok === true && custom.details.items.join("/") === "Dry lands/Wet lands", JSON.stringify(custom.details?.items));
+  check("legend: columns and opacity applied to the style", (await A(() => [styles.legend.options.columns, styles.legend.box.attrs["fill-opacity"]])).join() === "7,0.5");
+  const corner = await A(() => { const n = document.querySelector('#legend > g[data-legend="Mine"]'); const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(n.getAttribute("transform")); return [Number(m[1]), Number(m[2])]; });
+  check("legend: corner top-left puts the box near the top-left of the map", corner[0] < 40 && corner[1] < 40, corner.join(","));
+  check("legend custom: a malformed item is refused with an example", String((await apply({ action: "show", layer: "custom", items: "oops" })).error).includes("#aa3355=Label"));
+  check("legend: items without layer custom is refused", String((await apply({ action: "show", layer: "states", items: "#aa3355=x" })).error).includes("only goes with layer custom"));
+  const withBoxes = await boxes();
+  const saved = await A(() => FMG_AGENT.exportMap());
+  await A(t => FMG_AGENT.importMap(t), featureBase);
+  check("legend: a reload of another map drops the boxes", (await boxes()).length === 0);
+  await A(t => FMG_AGENT.importMap(t), saved);
+  const afterReload = await boxes();
+  check("legend: boxes come back with the saved map", JSON.stringify(afterReload.sort()) === JSON.stringify(withBoxes.sort()), `${afterReload.length}/${withBoxes.length}`);
+  const hid = await apply({ action: "hide", layer: "states" });
+  check("legend: hide removes one box only", hid.changed === 1 && !(await boxes()).includes("States") && (await boxes()).includes("Biomes"));
+  const hidAgain = await apply({ action: "hide", layer: "states" });
+  check("legend: hiding a box that is not shown changes nothing", hidAgain.changed === 0);
+  await apply({ action: "hide_all" });
+  check("legend: hide_all clears every box", (await boxes()).length === 0);
+
+  const river = await A(() => pack.rivers[0].i);
+  const rn = await A(([id]) => FMG_AGENT.apply("rename", { kind: "river", id, name: "Fleuve Test" }), [river]);
+  check("rename river: name changed", rn.ok === true && (await A(([id]) => pack.rivers.find(r => r.i === id).name, [river])) === "Fleuve Test");
+  const rn2 = await A(async () => { try { await FMG_AGENT.apply("rename", { kind: "river", id: 99999, name: "x" }); return "no error"; } catch (e) { return e.message; } });
+  check("rename river: unknown river refused", rn2.includes("does not exist"), rn2.slice(0, 50));
+  await A(t => FMG_AGENT.importMap(t), featureBase);
+}
+
+// ---- persistent annotations and the goods legend
+{
+  await A(t => FMG_AGENT.importMap(t), featureBase);
+  const run = (params) => A(async (p) => { try { return await FMG_AGENT.apply("annotate", p); } catch (e) { return { error: e.message }; } }, params);
+  const goods = await A(async () => { try { return await FMG_AGENT.apply("legend", { action: "show", layer: "goods" }); } catch (e) { return { error: e.message }; } });
+  check("legend goods: lists the shown goods or says there is nothing to show", goods.ok === true ? goods.details.items.length > 0 : String(goods.error).includes("nothing to show"), goods.error ?? goods.details.items.join(","));
+  await A(() => FMG_AGENT.apply("legend", { action: "hide_all" }));
+
+  const text = await run({ action: "add", kind: "text", x: 200, y: 150, text: "Ici <b>bas</b>", color: "teal" });
+  const marker = await run({ action: "add", kind: "marker", x: 300, y: 200, text: "Port", size: 4 });
+  const line = await run({ action: "add", kind: "line", path: [[10, 10], [200, 90], [300, 60]], color: "#336699", text: "Route du sel" });
+  const area = await run({ action: "add", kind: "area", area: [[400, 300], [500, 300], [450, 380]], text: "Zone" });
+  check("annotate: text, marker, line and area are added with increasing ids", [text, marker, line, area].map(r => r.details?.id).join() === "1,2,3,4", JSON.stringify([text, marker, line, area].map(r => r.error ?? r.details?.id)));
+  check("annotate: a colour name is stored as hex", text.details.color === "#008080", text.details?.color);
+  check("annotate: text is plain text, never markup", (await A(() => document.querySelector("#annotations text").textContent)) === "Ici <b>bas</b>" && (await A(() => document.querySelectorAll("#annotations b").length)) === 0);
+  check("annotate: refused outside the map", String((await run({ action: "add", kind: "marker", x: 99999, y: 5 })).error).includes("outside the map"));
+  check("annotate: a bad colour is refused", String((await run({ action: "add", kind: "marker", x: 5, y: 5, color: "notacolour" })).error).includes("not a colour"));
+  check("annotate: add text without text is refused", String((await run({ action: "add", kind: "text", x: 5, y: 5 })).error).includes("`text` is required"));
+  check("annotate: a line needs its path", String((await run({ action: "add", kind: "line" })).error).includes("`path` is required"));
+  check("annotate: list gives every id", (await run({ action: "list" })).details.annotations.length === 4);
+
+  const saved = await A(() => FMG_AGENT.exportMap());
+  await A(t => FMG_AGENT.importMap(t), featureBase);
+  check("annotate: another map has none", (await run({ action: "list" })).details.annotations.length === 0);
+  await A(t => FMG_AGENT.importMap(t), saved);
+  const back = (await run({ action: "list" })).details.annotations;
+  check("annotate: all four come back after save and reload", back.length === 4 && back.map(a => a.kind).join() === "text,marker,line,area", JSON.stringify(back.map(a => a.kind)));
+  check("annotate: the reloaded shapes are really drawn", (await A(() => [document.querySelectorAll("#annotations circle").length, document.querySelectorAll("#annotations polyline").length, document.querySelectorAll("#annotations polygon").length].join())) === "1,1,1");
+  const next = await run({ action: "add", kind: "marker", x: 50, y: 50 });
+  check("annotate: ids keep counting after a reload", next.details.id === 5, `${next.details?.id}`);
+  const removed = await run({ action: "remove", id: 2 });
+  check("annotate: remove deletes one", removed.changed === 1 && (await run({ action: "list" })).details.annotations.length === 4);
+  check("annotate: removing an unknown id is refused", String((await run({ action: "remove", id: 77 })).error).includes("does not exist"));
+  const cleared = await run({ action: "clear" });
+  check("annotate: clear removes them all", cleared.changed === 4 && (await run({ action: "list" })).details.annotations.length === 0);
+  await A(t => FMG_AGENT.importMap(t), featureBase);
+}
+
+// ---- clean capture mode: pictograms forced off, then put back exactly
+{
+  await A(() => FMG_AGENT.setLayers({ show: ["burgIcons", "routes", "markers", "ice"] }));
+  const sels = ["#anchors", "#routes", "#markers", "#ice"];
+  const shown = await A(sl => sl.map(q => document.querySelector(q) ? getComputedStyle(document.querySelector(q)).display : "missing"), sels);
+  const on = await A(sl => FMG_AGENT.setCleanMode(true, sl), sels);
+  const hiddenNow = await A(sl => sl.map(q => getComputedStyle(document.querySelector(q)).display), sels);
+  check("clean mode: anchors, routes, markers and ice are forced off", on.hidden >= 4 && hiddenNow.every(d => d === "none"), JSON.stringify(hiddenNow));
+  await A(() => FMG_AGENT.setLayers({ show: ["burgIcons"] }));
+  check("clean mode: a layer redraw does not bring them back", (await A(() => getComputedStyle(document.querySelector("#anchors")).display)) === "none");
+  await A(() => FMG_AGENT.setCleanMode(false));
+  const after = await A(sl => sl.map(q => document.querySelector(q) ? getComputedStyle(document.querySelector(q)).display : "missing"), sels);
+  check("clean mode off: every element is back as it was", JSON.stringify(after) === JSON.stringify(shown) && (await A(() => document.querySelector("#anchors").style.display === "")), JSON.stringify([shown, after]));
+  check("clean mode: an empty list is refused", String(await A(async () => { try { FMG_AGENT.setCleanMode(true, []); return "no error"; } catch (e) { return e.message; } })).includes("empty"));
+}
+
+// ---- globe layout: the map takes exactly its share of the 360 degrees, centred
+{
+  const real = await A(() => JSON.stringify(options.map.geography.coordinates));
+  const info = await A(c => { options.map.geography.coordinates = c; return FMG_AGENT.globeInfo(); }, { latT: 180, latN: 90, lonT: 320, lonW: -160, lonE: 160 });
+  const w = info.texturePx.width;
+  check("globe: 320 degrees take 320/360 of the texture width", info.mapPx.width === Math.round((320 / 360) * w), `${info.mapPx.width}/${w}`);
+  check("globe: the map is centred, closing ocean on both sides", Math.abs(info.mapPx.x * 2 + info.mapPx.width - w) <= 1 && info.closingOceanDegrees === 40, JSON.stringify(info.mapPx));
+  check("globe: the edge fades over a few percent of the width", info.featherPx > 0 && info.featherPx < w / 10, `${info.featherPx}`);
+  check("globe: partial map is not reported as the whole world", info.coversWholeWorld === false);
+  const full = await A(c => { options.map.geography.coordinates = c; return FMG_AGENT.globeInfo(); }, { latT: 180, latN: 90, lonT: 360, lonW: -180, lonE: 180 });
+  check("globe: a 360 degree map fills the width, no fade", full.mapPx.width === full.texturePx.width && full.featherPx === 0 && full.coversWholeWorld === true);
+  await A(c => { options.map.geography.coordinates = JSON.parse(c); }, real);
+}
+
+// ---- 3D views: relief and globe open, are read as pictures, and leave settings alone
+{
+  const settingsBefore = await A(() => JSON.stringify(options.app.threeD));
+  const blockedBefore = session.blockedRequests.size;
+  for (const mode of ["relief", "globe"]) {
+    const opened = await A(m => FMG_AGENT.open3d({ mode: m, textureResolution: 1024 }), mode);
+    check(`3d ${mode}: opens and the picture settles`, opened.finished === true && (await A(() => FMG_AGENT.is3dOpen())), JSON.stringify(opened.canvas));
+    const png = await A(() => FMG_AGENT.capture3d("png", 90));
+    const buf = Buffer.from(png.data, "base64");
+    check(`3d ${mode}: a real PNG comes back`, buf.subarray(1, 4).toString() === "PNG" && buf.length > 5000 && png.width === 1280, `${buf.length} bytes ${png.width}x${png.height}`);
+    const webp = await A(() => FMG_AGENT.capture3d("webp", 80));
+    check(`3d ${mode}: WebP output works`, webp.mimeType === "image/webp" && webp.data.length > 100);
+    await A(g => FMG_AGENT.view3d({ x: g ? 60 : 45, y: g ? 20 : 30 }), mode === "globe");
+    const moved = await A(() => FMG_AGENT.capture3d("png", 90));
+    check(`3d ${mode}: turning the camera changes the picture`, moved.data !== png.data);
+    await A(() => FMG_AGENT.close3d());
+    check(`3d ${mode}: closing returns to the flat map`, !(await A(() => FMG_AGENT.is3dOpen())) && (await A(() => document.getElementById("canvas3d") === null)));
+  }
+  check("3d: the person's own 3D settings are put back", (await A(() => JSON.stringify(options.app.threeD))) === settingsBefore);
+  check("3d: nothing asked the network (starfield is local)", session.blockedRequests.size === blockedBefore, [...session.blockedRequests].join(","));
+  const bad = await A(async () => { try { await FMG_AGENT.open3d({ mode: "globe", satellite: true }); return "no error"; } catch (e) { return e.message; } });
+  check("3d: satellite on a globe is refused", bad.includes("relief mode"), bad);
+  const none = await A(() => { try { FMG_AGENT.capture3d("png", 90); return "no error"; } catch (e) { return e.message; } });
+  check("3d: capture without an open view is refused", none.includes("no 3D view"), none);
+}
+
 check("no JavaScript errors in the page", errors.length === 0, errors.slice(0, 3).join(" | "));
 await browser.close(); server.close();
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
 process.exit(failures ? 1 : 0);
+

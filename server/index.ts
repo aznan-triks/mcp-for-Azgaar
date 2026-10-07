@@ -50,16 +50,20 @@ process.stdin.on("close", () => void shutdown(0));
 await server.connect(new StdioServerTransport());
 log(`serving Azgaar at ${web.url}`);
 
-void (async () => {
-  try {
-    // Inside the shared queue: the periodic autosave must never run while the browser is still
-    // launching, or it would overwrite the autosave with the freshly generated (not yet restored) map.
-    await exclusive.run(() => session.ensure());
-    log("browser ready");
-  } catch (err) {
-    log(`browser failed to start: ${err instanceof Error ? err.message : String(err)}`);
-  }
-})();
+// By default nothing opens until a tool needs the map (every map tool launches the browser itself):
+// an AI client that merely starts its MCP servers must not throw a window at the person.
+if (cfg.browser.openOnStart) {
+  void (async () => {
+    try {
+      // Inside the shared queue: the periodic autosave must never run while the browser is still
+      // launching, or it would overwrite the autosave with the freshly generated (not yet restored) map.
+      await exclusive.run(() => session.ensure());
+      log("browser ready");
+    } catch (err) {
+      log(`browser failed to start: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  })();
+} else log("browser opens on the first map tool");
 
 // Periodic save: also captures changes the person makes by hand in the window, not only the AI's edits.
 if (cfg.autosave.intervalSec > 0) {

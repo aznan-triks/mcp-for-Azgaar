@@ -14,12 +14,14 @@ Every tool the MCP server offers, with its parameters. Your AI program shows the
 | [`map_select`](#map_select) | Select cells |
 | [`map_commands`](#map_commands) | List edit commands |
 | [`map_apply`](#map_apply) | Edit the map |
+| [`map_legend`](#map_legend) | Legend boxes |
 | [`map_undo`](#map_undo) | Undo / redo |
 | [`map_layers`](#map_layers) | Show / hide map layers |
 | [`map_camera`](#map_camera) | Move the camera |
 | [`map_file`](#map_file) | Save / load / new map |
 | [`map_eval`](#map_eval) | Run JavaScript in the page (advanced) |
 | [`map_export`](#map_export) | Export the map to a file |
+| [`map_3d`](#map_3d) | 3D picture: relief scene or globe |
 | [`map_menu`](#map_menu) | Azgaar's action menu |
 | [`map_ui`](#map_ui) | Use Azgaar's interface |
 | [`map_options`](#map_options) | Generation settings |
@@ -41,7 +43,7 @@ Screenshot of what the browser window currently shows, plus a legend (state ids/
 
 ## map_status
 
-Health check: local address, page errors, and any outside-network request that was blocked (the map must run 100 % offline).
+Health check: local address, page errors, and any outside-network request that was blocked (the map must run 100 % offline). Does not open the browser: browserOpen tells whether it is open (any map tool opens it).
 
 _No parameters._
 
@@ -103,6 +105,24 @@ Run an edit command (see map_commands) on a selection or entity. The previous st
 | `params` | object | yes |  |
 | `view` | boolean | no |  |
 
+## map_legend
+
+Show or hide a legend box on the map: it explains the colours of a layer and is saved with the map (so it is in exports). layer: states, provinces (state = keep one state), cultures, religions, biomes, zones, heightmap (elevation bands), temperature, precipitation, population, routes, goods, markets, trade, or custom (items = "#aa3355=Dry lands;#3355aa=Wet lands"). Several boxes can be on at once; title names a box (default: the layer name) and is how it is hidden again (action hide, or hide_all). Placement: corner (top-left, top-right, bottom-left, bottom-right) or x/y = where the box's bottom-right corner sits in % of the map; columns (items per column) and opacity (background) apply to every box. Undoable with map_undo. view=true also returns a screenshot.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `action` | one of: `show`, `hide`, `hide_all` | yes |  |
+| `layer` | one of: `states`, `provinces`, `cultures`, `religions`, `biomes`, `zones`, `heightmap`, `temperature`, `precipitation`, `population`, `routes`, `goods`, `markets`, `trade`, `custom` | no |  |
+| `title` | string | no |  |
+| `items` | string | no |  |
+| `state` | integer (min 1, max 9007199254740991) | no |  |
+| `corner` | one of: `top-left`, `top-right`, `bottom-left`, `bottom-right` | no |  |
+| `x` | number (min 0, max 100) | no |  |
+| `y` | number (min 0, max 100) | no |  |
+| `columns` | integer (min 1, max 100) | no |  |
+| `opacity` | number (min 0, max 1) | no |  |
+| `view` | boolean | no |  |
+
 ## map_undo
 
 Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections survive (their cells are found again by position); check with map_view before editing.
@@ -113,13 +133,14 @@ Revert the last map_apply (undo) or re-apply it (redo), or list what can be undo
 
 ## map_layers
 
-Layers are what the person sees: states, borders, provinces, cultures, religions, biomes, heightmap, relief, temperature, rivers, routes, burgIcons, labels, cells, grid... Call with no arguments to list active and available layers; pass show and/or hide (arrays of layer ids) to change them. Edits to relief, cultures, religions or provinces are only visible when their layer is on.
+Layers are what the person sees: states, borders, provinces, cultures, religions, biomes, heightmap, relief, temperature, rivers, routes, burgIcons, labels, cells, grid... Call with no arguments to list active and available layers; pass show and/or hide (arrays of layer ids) to change them, or only (exactly these layers, all others hidden; [] hides everything). save_preset {name} remembers the layers now shown; preset {name} restores them (kept in maps/layer-presets.json). Built-in presets: topography, biomes, political (config layerPresets); a saved preset of the same name replaces a built-in. Edits to relief, cultures, religions or provinces are only visible when their layer is on.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
 | `show` | list of string | no |  |
 | `hide` | list of string | no |  |
 | `only` | list of string | no |  |
+| `save_preset` | string | no |  |
 | `preset` | string | no |  |
 
 ## map_camera
@@ -157,7 +178,7 @@ Escape hatch: evaluates a JavaScript expression/function body in the map page an
 
 ## map_export
 
-Exports exactly what Azgaar's Export menu exports, into the exports folder (the path is returned). Pictures: svg, png, jpeg (what is on screen NOW: choose the layers first, here or with map_layers), tiles (zip of png tiles). map = the .map save file. Data: json-* (full, minimal, pack/grid cells), geojson-* (cells, routes, rivers, markers, zones), csv-* (burgs, biomes, relations, goods, markers, markets, military, regiments, notes, zones). Options: only_layers = show exactly these layers and hide the others (e.g. ["heightmap","cultures"]); layer_preset = one of Azgaar's layer presets (political, cultural, religions, provinces, biomes, heightmap, physical...); resolution = picture scale factor; name = file name. The whole map is framed for pictures. A png/jpeg is also returned as an image unless the model cannot see images.
+Exports exactly what Azgaar's Export menu exports, into the exports folder (the path is returned). Pictures: svg, png, jpeg (what is on screen NOW: choose the layers first, here or with map_layers), tiles (zip of png tiles). map = the .map save file. Data: json-* (full, minimal, pack/grid cells), geojson-* (cells, routes, rivers, markers, zones), csv-* (burgs, biomes, relations, goods, markers, markets, military, regiments, notes, zones). Options: only_layers = show exactly these layers and hide the others (e.g. ["heightmap","cultures"]); layer_preset = one of Azgaar's layer presets (political, cultural, religions, provinces, biomes, heightmap, physical...); resolution = picture scale factor; clean = true forces port anchors, routes, markers and ice off (default from export.clean); name = file name. The whole map is framed for pictures. A png/jpeg is also returned as an image unless the model cannot see images.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
@@ -166,6 +187,29 @@ Exports exactly what Azgaar's Export menu exports, into the exports folder (the 
 | `only_layers` | list of string | no |  |
 | `layer_preset` | string | no |  |
 | `resolution` | number | no |  |
+| `clean` | boolean | no |  |
+
+## map_3d
+
+Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief only), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet. sun_position {x, y, z}; atmosphere = sky and horizon fog (relief); erosion (relief); height_scale (relief); distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `mode` | one of: `relief`, `globe` | yes |  |
+| `preset` | one of: `satellite`, `heightmap`, `biomes` | no |  |
+| `rotation` | object {x, y} | no |  |
+| `hemispheres` | one of: `single`, `both` | no |  |
+| `sun_position` | object {x, y, z} | no |  |
+| `atmosphere` | boolean | no |  |
+| `erosion` | boolean | no |  |
+| `height_scale` | number (min 1) | no |  |
+| `distance` | number | no |  |
+| `texture_resolution` | integer (min 1, max 9007199254740991) | no |  |
+| `labels` | boolean | no |  |
+| `clean` | boolean | no |  |
+| `output` | one of: `png`, `jpeg`, `webp` | no |  |
+| `name` | string | no |  |
+| `max_image_bytes` | integer (min 10000, max 50000000) | no |  |
 
 ## map_menu
 

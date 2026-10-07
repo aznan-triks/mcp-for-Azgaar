@@ -22,7 +22,7 @@ export const SERVER_INSTRUCTIONS = `You edit a fantasy map shown live in a brows
 Workflow: map_summary (states, ids) -> map_view with grid/state_ids (you see the map; add region {x0,y0,x1,y1} to zoom on an area; if you cannot see images, pass text_map:true to get the map drawn in characters) -> map_select (red preview appears live) -> map_view to check the preview -> map_apply -> map_view to verify.
 Finding things: when the person names a city or state, use map_list with name (case-insensitive part of the name) to get its id and position. Lists are cut at 50 rows by default; total is the real count.
 Coordinates: "map units" are the map's own coordinates (the graticule labels in map_view). Screenshot pixels are the browser window pixels: convert with map_locate {px,py}. Cells have integer ids; states, provinces, cultures, religions, burgs (cities), rivers, routes and markers too (0 = none/unclaimed).
-Extending a state: map_select shape ring {state, depth} (cells just outside it), optionally intersect with a rect to go one way only (combine_op intersect), then map_apply assignState. Capitals are never taken. Merging states: mergeStates; founding one: createState; provinces: createProvince (needs state-owned land); cultures: createCulture (then give it cells with assignCulture); religions: createReligion. Labels: map_list kind=labels shows them, moveLabel shifts/hides/resets one. Emblems: regenerateEmblem / setEmblemStyle.
+Extending a state: map_select shape ring {state, depth} (cells just outside it), optionally intersect with a rect to go one way only (combine_op intersect), then map_apply assignState. Capitals are never taken. Merging states: mergeStates; founding one: createState; provinces: createProvince (needs state-owned land); cultures: createCulture (then give it cells with assignCulture); religions: createReligion. Labels: map_list kind=labels shows them, moveLabel shifts/hides/resets one. Emblems: regenerateEmblem / setEmblemStyle. Legends: map_legend explains the colours of a layer (states, provinces, cultures, religions, biomes, heightmap...). 3D scenes and globes: map_3d. Annotations: map_apply annotate puts arrows, markers, lines, areas and text permanently on the map.
 Every map_apply is undoable with map_undo, and a failed edit restores the map by itself. Prefer small, verifiable steps; report what changed using the numbers returned and the warnings.
 Edits to relief, cultures, religions, provinces or rivers are only visible when their layer is on: use map_layers (e.g. show heightmap or relief to check terrain).
 Terrain edits keep coasts and lakes frozen by default (scope land): fast and nothing else changes. Use scope all to create/remove land or lakes; that rebuilds the map, renumbers cells and may shift coastal borders by a cell elsewhere. Open sea is not selectable: shapeCone / shapeRidge can raise an island there.
@@ -54,6 +54,20 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   const safeName = (name: string): string => {
     if (!/^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$/.test(name) || name.includes("..")) throw new Error("Invalid map name: use letters, digits, space, dot, dash, underscore (max 64)");
     return name.replace(/\.map$/i, "");
+  };
+
+  const presetsPath = join(cfg.mapsDir, cfg.presetsFile);
+  const loadSavedPresets = (): Record<string, string[]> => {
+    try {
+      return JSON.parse(readFileSync(presetsPath, "utf8"));
+    } catch {
+      return {};
+    }
+  };
+  const loadPresets = (): Record<string, string[]> => ({ ...cfg.layerPresets, ...loadSavedPresets() });
+  const writePresets = (p: Record<string, string[]>) => {
+    mkdirSync(cfg.mapsDir, { recursive: true });
+    writeFileSync(presetsPath, JSON.stringify(p, null, 2));
   };
 
   server.registerTool(
@@ -89,10 +103,11 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
 
   server.registerTool(
     "map_status",
-    { title: "Diagnostics", description: "Health check: local address, page errors, and any outside-network request that was blocked (the map must run 100 % offline).", inputSchema: {} },
+    { title: "Diagnostics", description: "Health check: local address, page errors, and any outside-network request that was blocked (the map must run 100 % offline). Does not open the browser: browserOpen tells whether it is open (any map tool opens it).", inputSchema: {} },
     guarded(async () => {
-      await session.ensure();
-      return { content: [text({ localUrl: session.baseUrl, bridgeVersion: await session.call("apiVersion"), blockedOutsideRequests: [...session.blockedRequests], pageErrors: session.pageErrors.slice(-10), startupWarnings: session.startupWarnings, history: history.state() })] };
+      if (!session.isOpen())
+        return { content: [text({ browserOpen: false, localUrl: session.baseUrl, startupWarnings: session.startupWarnings, history: history.state(), note: "The browser opens at the first map tool (map_summary, map_view...)." })] };
+      return { content: [text({ browserOpen: true, localUrl: session.baseUrl, bridgeVersion: await session.call("apiVersion"), blockedOutsideRequests: [...session.blockedRequests], pageErrors: session.pageErrors.slice(-10), startupWarnings: session.startupWarnings, history: history.state() })] };
     })
   );
 
@@ -146,6 +161,31 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     guarded(async () => ({ content: [text(await session.call("describe"))] }))
   );
 
+  const runEdit = async (cmd: string, p: Record<string, unknown>, view?: boolean): Promise<ToolResult> => {
+    await history.pushBefore(cmd);
+    let result: { changed?: number };
+    try {
+      result = await session.call<{ changed?: number }>("apply", cmd, p);
+    } catch (err) {
+      // A plain validation error changed nothing; any other failure may have left the map half-edited.
+      const dirty = await session.call<boolean>("lastFailureLeftMapDirty").catch(() => true);
+      if (dirty) {
+        await history.rollback();
+        throw new Error(`${cleanError(err)} (the map was restored to its state before this edit)`);
+      }
+      history.dropLast();
+      throw err;
+    }
+    if (result.changed === 0) history.dropLast();
+    else await autosave();
+    const content: Content[] = [text({ result, history: history.state() })];
+    if (view) {
+      await settle();
+      content.unshift(await viewContent());
+    }
+    return { content };
+  };
+
   server.registerTool(
     "map_apply",
     {
@@ -154,29 +194,32 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
         "Run an edit command (see map_commands) on a selection or entity. The previous state is saved first (map_undo reverts it) and the new state is autosaved. Returns exact before/after figures, skipped cells (water, capitals...) and warnings. Set view=true to also get a screenshot.",
       inputSchema: { command: z.string(), params: z.record(z.string(), z.unknown()), view: z.boolean().optional() }
     },
-    guarded(async ({ command, params, view }) => {
-      await history.pushBefore(command);
-      let result: { changed?: number };
-      try {
-        result = await session.call<{ changed?: number }>("apply", command, params);
-      } catch (err) {
-        // A plain validation error changed nothing; any other failure may have left the map half-edited.
-        const dirty = await session.call<boolean>("lastFailureLeftMapDirty").catch(() => true);
-        if (dirty) {
-          await history.rollback();
-          throw new Error(`${cleanError(err)} (the map was restored to its state before this edit)`);
-        }
-        history.dropLast();
-        throw err;
+    guarded(async ({ command, params, view }) => runEdit(command, params, view))
+  );
+
+  server.registerTool(
+    "map_legend",
+    {
+      title: "Legend boxes",
+      description:
+        "Show or hide a legend box on the map: it explains the colours of a layer and is saved with the map (so it is in exports). layer: states, provinces (state = keep one state), cultures, religions, biomes, zones, heightmap (elevation bands), temperature, precipitation, population, routes, goods, markets, trade, or custom (items = \"#aa3355=Dry lands;#3355aa=Wet lands\"). Several boxes can be on at once; title names a box (default: the layer name) and is how it is hidden again (action hide, or hide_all). Placement: corner (top-left, top-right, bottom-left, bottom-right) or x/y = where the box's bottom-right corner sits in % of the map; columns (items per column) and opacity (background) apply to every box. Undoable with map_undo. view=true also returns a screenshot.",
+      inputSchema: {
+        action: z.enum(["show", "hide", "hide_all"]),
+        layer: z.enum(["states", "provinces", "cultures", "religions", "biomes", "zones", "heightmap", "temperature", "precipitation", "population", "routes", "goods", "markets", "trade", "custom"]).optional(),
+        title: z.string().optional(),
+        items: z.string().optional(),
+        state: z.number().int().min(1).optional(),
+        corner: z.enum(["top-left", "top-right", "bottom-left", "bottom-right"]).optional(),
+        x: z.number().min(0).max(100).optional(),
+        y: z.number().min(0).max(100).optional(),
+        columns: z.number().int().min(1).max(100).optional(),
+        opacity: z.number().min(0).max(1).optional(),
+        view: z.boolean().optional()
       }
-      if (result.changed === 0) history.dropLast();
-      else await autosave();
-      const content: Content[] = [text({ result, history: history.state() })];
-      if (view) {
-        await settle();
-        content.unshift(await viewContent());
-      }
-      return { content };
+    },
+    guarded(async ({ view, ...params }) => {
+      const given = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
+      return runEdit("legend", given, view);
     })
   );
 
@@ -200,12 +243,29 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     {
       title: "Show / hide map layers",
       description:
-        "Layers are what the person sees: states, borders, provinces, cultures, religions, biomes, heightmap, relief, temperature, rivers, routes, burgIcons, labels, cells, grid... Call with no arguments to list active and available layers; pass show and/or hide (arrays of layer ids) to change them. Edits to relief, cultures, religions or provinces are only visible when their layer is on.",
-      inputSchema: { show: z.array(z.string()).optional(), hide: z.array(z.string()).optional(), only: z.array(z.string()).optional(), preset: z.string().optional() }
+        "Layers are what the person sees: states, borders, provinces, cultures, religions, biomes, heightmap, relief, temperature, rivers, routes, burgIcons, labels, cells, grid... Call with no arguments to list active and available layers; pass show and/or hide (arrays of layer ids) to change them, or only (exactly these layers, all others hidden; [] hides everything). save_preset {name} remembers the layers now shown; preset {name} restores them (kept in maps/layer-presets.json). Built-in presets: topography, biomes, political (config layerPresets); a saved preset of the same name replaces a built-in. Edits to relief, cultures, religions or provinces are only visible when their layer is on.",
+      inputSchema: {
+        show: z.array(z.string()).optional(),
+        hide: z.array(z.string()).optional(),
+        only: z.array(z.string()).optional(),
+        save_preset: z.string().optional(),
+        preset: z.string().optional()
+      }
     },
-    guarded(async ({ show, hide, only, preset }) => {
-      if (!show?.length && !hide?.length && !only?.length && !preset) return { content: [text(await session.call("layers"))] };
-      return { content: [text(await session.call("setLayers", { show, hide, only, preset }))] };
+    guarded(async ({ show, hide, only, save_preset, preset }) => {
+      const presets = loadPresets();
+      if (save_preset) {
+        const now = await session.call<{ active: string[] }>("layers");
+        writePresets({ ...loadSavedPresets(), [safeName(save_preset)]: now.active });
+        return { content: [text({ savedPreset: save_preset, layers: now.active })] };
+      }
+      if (preset) {
+        const layers = presets[safeName(preset)];
+        if (!layers) throw new Error(`Unknown preset "${preset}". Saved: ${Object.keys(presets).join(", ") || "none"}`);
+        return { content: [text(await session.call("setLayers", { only: layers }))] };
+      }
+      if (!show?.length && !hide?.length && !only) return { content: [text({ ...(await session.call<object>("layers")), presets: Object.keys(presets) })] };
+      return { content: [text(await session.call("setLayers", { show, hide, only }))] };
     })
   );
 
@@ -288,5 +348,5 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     );
   }
 
-  registerExtraTools({ server, cfg, session, history, guarded, text, viewContent, settle, autosave });
+  registerExtraTools({ server, cfg, session, history, guarded, text, viewContent, settle, autosave, loadPresets, safeName });
 }

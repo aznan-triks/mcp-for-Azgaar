@@ -37,7 +37,9 @@ These are the arguments of `map_apply` (edit commands) and `map_select` (selecti
 | [`moveLabel`](#movelabel) | Shift the label of a state, province, city (burg), river, route or added label by an offset: dx, dy in map uni... |
 | [`regenerateEmblem`](#regenerateemblem) | Give a state, province or city (burg) a freshly generated coat of arms: new heraldry derived from its parent's... |
 | [`setEmblemStyle`](#setemblemstyle) | Change the look of an existing coat of arms without redrawing its heraldry: the shield shape (heater, round, b... |
-| [`rename`](#rename) | Rename a state, province, burg, culture or religion. For states and provinces `full_name` is the long form sho... |
+| [`legend`](#legend) | Show or hide a legend box on the map (it is saved with the map). layer: states, provinces (optionally one `sta... |
+| [`annotate`](#annotate) | Persistent annotations drawn over the map and saved with it (they come back after map_file load and appear in ... |
+| [`rename`](#rename) | Rename a state, province, burg, culture, religion or river. For states and provinces `full_name` is the long f... |
 | [`setStateColor`](#setstatecolor) | Change the colour of a state (hex like #aa3355). |
 
 ### assignState
@@ -343,13 +345,47 @@ Change the look of an existing coat of arms without redrawing its heraldry: the 
 | `shield` | one of: `heater`, `spanish`, `french`, `horsehead`, `horsehead2`, `polish`, `hessen`, `swiss`, `boeotian`, `roman`, `kite`, `oldFrench`, `renaissance`, `baroque`, `targe`, `targe2`, `pavise`, `wedged`, `flag`, `pennon`, `guidon`, `banner`, `dovetail`, `gonfalon`, `pennant`, `round`, `oval`, `vesicaPiscis`, `square`, `diamond`, `fantasy1`, `fantasy2`, `fantasy3`, `fantasy4`, `fantasy5`, `noldor`, `gondor`, `easterling`, `erebor`, `ironHills`, `urukHai`, `moriaOrc` | no | Shield shape |
 | `size` | number (min 0, max 5) | no | Emblem size (1 = default; 0 hides it from the map) |
 
-### rename
+### legend
 
-Rename a state, province, burg, culture or religion. For states and provinces `full_name` is the long form shown on the map (defaults to `name`).
+Show or hide a legend box on the map (it is saved with the map). layer: states, provinces (optionally one `state`), cultures, religions, biomes, zones, heightmap (elevation bands), temperature, precipitation, population, routes, or custom (needs `items`). The box is named by `title` (default: the layer's name); several boxes can be shown at once. Placement: `corner`, or `x`/`y` = where the box's bottom-right corner sits, in % of the map. `columns` (items per column) and `opacity` (box background) apply to every box.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
-| `kind` | one of: `state`, `province`, `burg`, `culture`, `religion` | yes | What to rename |
+| `action` | one of: `show`, `hide`, `hide_all` | yes | show, hide (one box) or hide_all |
+| `layer` | one of: `states`, `provinces`, `cultures`, `religions`, `biomes`, `zones`, `heightmap`, `temperature`, `precipitation`, `population`, `routes`, `goods`, `markets`, `trade`, `custom` | no | What the legend explains (needed for show; for hide, picks the default title) |
+| `title` | string | no | Box title; also its identity (hide with the same title) |
+| `items` | string | no | custom only: "#aa3355=Label;#3355aa=Other label" (hex colour, =, label; items separated by ; or new lines) |
+| `state` | integer (min 1) | no | provinces only: keep the provinces of this state |
+| `corner` | one of: `top-left`, `top-right`, `bottom-left`, `bottom-right` | no | Put the box in this corner of the map |
+| `x` | number (min 0, max 100) | no | Bottom-right corner of the box, % of map width |
+| `y` | number (min 0, max 100) | no | Bottom-right corner of the box, % of map height |
+| `columns` | integer (min 1, max 100) | no | Items per column, for all boxes (more columns = wider, shorter box) |
+| `opacity` | number (min 0, max 1) | no | Box background opacity, for all boxes |
+
+### annotate
+
+Persistent annotations drawn over the map and saved with it (they come back after map_file load and appear in exports). add: kind text (needs x, y, text), marker (x, y, optional text beside it), line (needs path), area (needs area, filled translucent, optional text at its first point). list: every annotation with its id. remove: one by id. clear: all of them. Coordinates are map units (0 to the map's width/height).
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `action` | one of: `add`, `list`, `remove`, `clear` | yes | add, list, remove or clear |
+| `kind` | one of: `text`, `marker`, `line`, `area` | no | add only: what to draw |
+| `x` | number (min 0) | no | text / marker: horizontal position in map units (give y too) |
+| `y` | number (min 0) | no | text / marker: vertical position in map units (give x too) |
+| `path` | path | no | line: at least 2 [x, y] points |
+| `area` | points | no | area: at least 3 [x, y] points |
+| `text` | string | no | text shown (text, marker, area) |
+| `color` | string | no | Colour name or hex code; default is a dark red |
+| `size` | number (min 0.5, max 100) | no | marker radius, text size or line width, in map units |
+| `id` | integer (min 1) | no | remove only: the annotation id from list |
+
+### rename
+
+Rename a state, province, burg, culture, religion or river. For states and provinces `full_name` is the long form shown on the map (defaults to `name`).
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `kind` | one of: `state`, `province`, `burg`, `culture`, `religion`, `river` | yes | What to rename |
 | `id` | integer (min 1) | yes | Entity id |
 | `name` | string | yes | New (short) name |
 | `full_name` | string | no | Long name, e.g. 'Kingdom of Gazd' (states and provinces only) |

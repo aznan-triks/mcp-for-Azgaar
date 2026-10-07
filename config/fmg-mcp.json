@@ -1,6 +1,41 @@
 {
   "azgaarDist": "upstream/azgaar/dist-electron/renderer",
   "mapsDir": "maps",
+  "presetsFile": "layer-presets.json",
+  "layerPresets": {
+    "topography": [
+      "lakes",
+      "heightmap",
+      "rivers",
+      "ice",
+      "scaleBar"
+    ],
+    "biomes": [
+      "lakes",
+      "biomes",
+      "rivers",
+      "ice",
+      "scaleBar"
+    ],
+    "political": [
+      "lakes",
+      "rivers",
+      "states",
+      "provinces",
+      "borders",
+      "ice",
+      "labels",
+      "burgIcons",
+      "scaleBar"
+    ],
+    "lore-clean": [
+      "lakes",
+      "biomes",
+      "rivers",
+      "labels",
+      "scaleBar"
+    ]
+  },
   "exportsDir": "exports",
   "profileDir": ".browser-profile",
   "startup": "autosave",
@@ -14,8 +49,8 @@
     "executablePath": null,
     "headless": false,
     "viewport": {
-      "width": 1280,
-      "height": 720
+      "width": 1920,
+      "height": 1080
     },
     "readyTimeoutMs": 120000,
     "args": [],
@@ -24,12 +59,13 @@
     ],
     "seedStorage": {
       "fmg-disable-click-arrow-tooltip": "true"
-    }
+    },
+    "openOnStart": false
   },
   "map": {
     "seed": null,
-    "width": 1280,
-    "height": 720
+    "width": 1920,
+    "height": 1080
   },
   "history": {
     "maxEntries": 30
@@ -40,6 +76,18 @@
     "settleMs": 200,
     "maxImageBytes": 900000,
     "textOnly": false
+  },
+  "export": {
+    "format": "png",
+    "jpegQuality": 92,
+    "maxPixels": 10000,
+    "clean": false,
+    "cleanHide": [
+      "#anchors",
+      "#routes",
+      "#markers",
+      "#ice"
+    ]
   },
   "bridge": {},
   "limits": {
@@ -55,5 +103,22 @@
   "azgaarPackage": "upstream/azgaar/package.json",
   "autosave": {
     "intervalSec": 60
+  },
+  "view3d": {
+    "format": "png",
+    "quality": 92,
+    "hemisphereOffset": 0.25,
+    "presets": {
+      "satellite": {
+        "satellite": true,
+        "erosion": false
+      },
+      "heightmap": {
+        "layerPreset": "topography"
+      },
+      "biomes": {
+        "layerPreset": "biomes"
+      }
+    }
   }
 }

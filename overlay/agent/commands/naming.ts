@@ -1,11 +1,11 @@
 import { AgentError, type Command, type CommandResult, type Params } from "../types";
 
-const KINDS = ["state", "province", "burg", "culture", "religion"] as const;
+const KINDS = ["state", "province", "burg", "culture", "religion", "river"] as const;
 
 const rename: Command = {
   name: "rename",
   description:
-    "Rename a state, province, burg, culture or religion. For states and provinces `full_name` is the long form shown on the map (defaults to `name`).",
+    "Rename a state, province, burg, culture, religion or river. For states and provinces `full_name` is the long form shown on the map (defaults to `name`).",
   params: {
     kind: { type: "string", required: true, enum: KINDS, description: "What to rename" },
     id: { type: "integer", required: true, min: 1, description: "Entity id" },
@@ -14,16 +14,18 @@ const rename: Command = {
   },
   run(p: Params): CommandResult {
     const [kind, id, name] = [p.kind as (typeof KINDS)[number], p.id as number, p.name as string];
-    const lists = {
-      state: pack.states,
-      province: pack.provinces,
-      burg: pack.burgs,
-      culture: pack.cultures,
-      religion: pack.religions
-    };
-    const entity = lists[kind][id] as
-      | { name?: string; fullName?: string; removed?: boolean; label?: { text?: string } }
-      | undefined;
+    // rivers are looked up by their id: the list is not indexed by it
+    const entity = (
+      kind === "river"
+        ? pack.rivers.find(r => r.i === id)
+        : {
+            state: pack.states,
+            province: pack.provinces,
+            burg: pack.burgs,
+            culture: pack.cultures,
+            religion: pack.religions
+          }[kind][id]
+    ) as { name?: string; fullName?: string; removed?: boolean; label?: { text?: string } } | undefined;
     if (!entity || entity.removed) throw new AgentError(`rename: ${kind} ${id} does not exist`);
     if (p.full_name !== undefined && kind !== "state" && kind !== "province")
       throw new AgentError("rename: full_name only applies to states and provinces");
@@ -33,8 +35,9 @@ const rename: Command = {
       entity.fullName = (p.full_name as string | undefined) ?? name;
       if (entity.label?.text) delete entity.label.text;
     }
+    if (kind === "river" && entity.label?.text) delete entity.label.text; // the river label follows its name again
     if (kind === "burg") entity.label = { ...entity.label, text: name };
-    if (kind === "state" || kind === "province" || kind === "burg") Layers.draw("labels");
+    if (kind === "state" || kind === "province" || kind === "burg" || kind === "river") Layers.draw("labels");
     if (kind === "province") Layers.draw("provinces");
     return {
       ok: true,

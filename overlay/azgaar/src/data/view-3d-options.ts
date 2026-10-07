@@ -1,0 +1,122 @@
+import { minmax } from "@/utils/numberUtils";
+
+export type ThreeDOptions = {
+  scale: number;
+  lightness: number;
+  shadow: number;
+  sun: { x: number; y: number; z: number };
+  rotateMesh: number;
+  rotateGlobe: number;
+  skyColor: string;
+  waterColor: string;
+  sunColor: string;
+  extendedWater: boolean;
+  labels3d: boolean;
+  wireframe: boolean;
+  resolutionScale: number;
+  subdivide: boolean;
+  erosion: boolean;
+  erosionDetail: number;
+  erosionStrength: number;
+  erosionRiverDepth: number;
+  erosionOctaves: number;
+  satellite: boolean;
+};
+
+export type TimeOfDayPreset = {
+  sun: { x: number; y: number; z: number };
+  sunColor: string;
+  lightness: number;
+  skyColor: string;
+  waterColor: string;
+};
+
+export const timeOfDayPresets: Record<string, TimeOfDayPreset> = {
+  dawn: {
+    sun: { x: -500, y: 400, z: 800 },
+    sunColor: "#ff9a56",
+    lightness: 0.4,
+    skyColor: "#ffccaa",
+    waterColor: "#2d4d6b"
+  },
+  noon: {
+    sun: { x: 100, y: 800, z: 1000 },
+    sunColor: "#cccccc",
+    lightness: 0.6,
+    skyColor: "#9ecef5",
+    waterColor: "#466eab"
+  },
+  evening: {
+    sun: { x: 500, y: 400, z: 800 },
+    sunColor: "#ff6b35",
+    lightness: 0.5,
+    skyColor: "#ff8c42",
+    waterColor: "#1e3a52"
+  },
+  night: {
+    sun: { x: 0, y: -500, z: 1000 },
+    sunColor: "#4a5568",
+    lightness: 0.2,
+    skyColor: "#1a1a2e",
+    waterColor: "#0f1419"
+  }
+};
+
+/** The 3D view every browser starts from. The one definition of these values */
+export const DEFAULT_THREE_D: ThreeDOptions = {
+  scale: 50,
+  lightness: 0.6,
+  shadow: 0.5,
+  sun: { x: 100, y: 800, z: 1000 },
+  rotateMesh: 0,
+  rotateGlobe: 0.5,
+  skyColor: "#9ecef5",
+  waterColor: "#466eab",
+  sunColor: "#cccccc",
+  extendedWater: false,
+  labels3d: false,
+  satellite: false,
+  wireframe: false,
+  resolutionScale: 4096,
+  subdivide: false,
+  erosion: false,
+  erosionDetail: 1024,
+  erosionStrength: 30,
+  erosionRiverDepth: 10,
+  erosionOctaves: 2
+};
+
+/** every texture the 3D view bakes must sit inside what a GPU will accept */
+export const clampTextureResolution = (value: number) => minmax(value, 512, 8192);
+
+/**
+ * The globe texture multiplier the panel shows: `resolutionScale` said the other way round.
+ * Derived where it is read, never stored - the scale is the one form of the value that is
+ */
+export const globeResolutionFor = (resolutionScale: number) =>
+  minmax(0.5, clampTextureResolution(resolutionScale) / 1024, 8);
+
+/** Share of the texture width over which the map edge fades into the closing ocean of a partial globe. */
+export const GLOBE_FEATHER_RATIO = 0.04;
+
+/** Procedural starfield behind the globe (no download: the map must run offline). */
+export const STARFIELD = { size: 2048, stars: 900, background: "#05060f", maxRadius: 1.6 } as const;
+
+export type GlobeCoordinates = { latT: number; latN: number; lonT: number };
+
+/**
+ * Where the flat map sits on the equirectangular globe texture, in texture pixels.
+ * The map covers `lonT` degrees of the 360 of the sphere, so it takes exactly lonT/360 of the width
+ * (stretching it over the full width inflates the land by 360/lonT) and is centred; the rest is closing ocean.
+ */
+export const globeLayout = (c: GlobeCoordinates, width: number) => {
+  const height = Math.max(1, Math.round(width / 2));
+  const coversLatitude = c.latT > 179;
+  const coversLongitude = c.lonT > 359;
+  const mapHeight = Math.round((c.latT / 180) * height);
+  const mapWidth = coversLongitude ? width : Math.round((c.lonT / 360) * width);
+  const dy = coversLatitude ? 0 : ((90 - c.latN) / 180) * height;
+  const dx = (width - mapWidth) / 2;
+  const feather = coversLongitude ? 0 : Math.min(Math.round(width * GLOBE_FEATHER_RATIO), Math.floor(mapWidth / 4));
+  return { width, height, mapWidth, mapHeight, dx, dy, feather, coversLatitude, coversLongitude };
+};

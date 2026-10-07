@@ -75,10 +75,11 @@ export function applyPatches(dir) {
   const results = [];
   const note = (id, status, required) => results.push({ id, status, required });
 
-  // 1. the bridge itself + its fonts
+  // 1. the bridge itself + its fonts + 3D renderer patches
   cpSync(join(root, "overlay", "agent"), join(src, "agent"), { recursive: true });
   cpSync(join(root, "overlay", "fonts"), join(dir, "public", "fonts"), { recursive: true });
-  note("copy the bridge (src/agent)", "applied", true);
+  if (existsSync(join(root, "overlay", "azgaar"))) cpSync(join(root, "overlay", "azgaar"), dir, { recursive: true });
+  note("copy the bridge (src/agent) and 3D patches", "applied", true);
 
   // 2. load the bridge at startup
   const main = join(src, "main.ts");

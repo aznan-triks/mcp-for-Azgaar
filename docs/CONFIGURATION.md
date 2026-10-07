@@ -31,6 +31,12 @@ The table below lists every configuration setting available in `config/fmg-mcp.j
 | `azgaarDist` | string | `"upstream/azgaar/dist-electron/renderer"` | Path to the built Azgaar static web assets folder containing `index.html`. | Change if you install or build Azgaar in a custom directory. |
 | `azgaarPackage` | string | `"upstream/azgaar/package.json"` | Path to the Azgaar `package.json` file used to detect the installed version. | Change if your Azgaar source tree lives in a different folder. |
 | `mapsDir` | string | `"maps"` | Folder where user map files, autosave files, and undo history snapshots are stored. | Change to store your maps in another directory or a synchronized cloud folder. |
+| `presetsFile` | string | `"layer-presets.json"` | Path to the file where custom layer presets are stored. | Change if storing layer presets in an alternate file. |
+| `layerPresets` | object | `{ ... }` | Bundled layer presets mapping each name to a list of layers. | Customize default layer presets. |
+| `layerPresets.topography` | array of strings | `["lakes", ...]` | Preset displaying topographical relief layers. | Custom layer set for topography. |
+| `layerPresets.biomes` | array of strings | `["lakes", ...]` | Preset displaying ecological biomes. | Custom layer set for biomes. |
+| `layerPresets.political` | array of strings | `["lakes", ...]` | Preset displaying political borders, states, and provinces. | Custom layer set for politics. |
+| `layerPresets.lore-clean` | array of strings | `["lakes", ...]` | Preset displaying pristine land, biomes, and labels without game markers. | Custom layer set for clean cartography. |
 | `exportsDir` | string | `"exports"` | Folder where images, data files, and exported `.map` files are written. | Change to direct exported files to another directory. |
 | `profileDir` | string | `".browser-profile"` | Directory holding the browser user data and local storage between launches. | Change if you want a separate browser profile or want it stored on a specific drive. |
 | `startup` | string (`"autosave"` or `"new"`) | `"autosave"` | Action performed when the browser opens: `"autosave"` restores the last session map; `"new"` creates a fresh random map. | Change to `"new"` if you prefer starting with a new procedural world on every launch. |
@@ -42,17 +48,18 @@ The table below lists every configuration setting available in `config/fmg-mcp.j
 | `browser.channel` | string or null | `"chrome"` | Primary browser distribution channel used by Playwright (`"chrome"` or `"msedge"`). Set to `null` when specifying `browser.executablePath`. | Change to `"msedge"` if you do not have Google Chrome installed, or `null` if using a custom binary. |
 | `browser.executablePath` | string or null | `null` | Absolute path to a specific browser executable binary. | Set this if your browser is installed in a non-standard location or if you use Chromium. |
 | `browser.headless` | boolean | `false` | Runs the browser without a visible window when `true`. | Change to `true` to run silently in the background on servers or when visual feedback is not needed. |
-| `browser.viewport` | object | `{ width: 1280, height: 720 }` | Viewport dimensions in screen pixels for the browser window. | Change to customize the browser view size. |
-| `browser.viewport.width` | integer (min 320) | `1280` | Width of the browser viewport in pixels. | Change if you want a wider map display or higher resolution screenshots. |
-| `browser.viewport.height` | integer (min 240) | `720` | Height of the browser viewport in pixels. | Change if you want a taller map display or higher resolution screenshots. |
+| `browser.viewport` | object | `{ width: 1920, height: 1080 }` | Viewport dimensions in screen pixels for the browser window. | Change to customize the browser view size. |
+| `browser.viewport.width` | integer (min 320) | `1920` | Width of the browser viewport in pixels. | Change if you want a wider map display or higher resolution screenshots. |
+| `browser.viewport.height` | integer (min 240) | `1080` | Height of the browser viewport in pixels. | Change if you want a taller map display or higher resolution screenshots. |
 | `browser.readyTimeoutMs` | integer (min 1000) | `120000` | Maximum time in milliseconds to wait for Azgaar and the bridge to finish loading. | Increase on slower computers if startup times out during initial map generation. |
 | `browser.args` | array of strings | `[]` | Extra command-line arguments passed directly to the browser process. | Add flags if your environment needs specific Chromium arguments (e.g. `--no-sandbox` in containers). |
 | `browser.fallbackChannels` | array of strings | `["msedge"]` | Fallback browser channels to attempt if the primary `browser.channel` is not installed. | Change to add or reorder fallback browsers. |
 | `browser.seedStorage` | object (key-value strings) | `{"fmg-disable-click-arrow-tooltip": "true"}` | Key-value pairs inserted into browser `localStorage` before the page loads. | Use to suppress welcome modals, update popups, or preset Azgaar settings in storage. |
-| `map` | object | `{ seed: null, width: 1280, height: 720 }` | Default dimensions and seed for new procedural maps. | Change to set standard dimensions or a fixed seed for freshly generated maps. |
+| `browser.openOnStart` | boolean | `false` | When `false`, the browser window opens only when the first map tool is called instead of immediately on server launch. | Set to `true` to open the window as soon as the server boots. |
+| `map` | object | `{ seed: null, width: 1920, height: 1080 }` | Default dimensions and seed for new procedural maps. | Change to set standard dimensions or a fixed seed for freshly generated maps. |
 | `map.seed` | string or null | `null` | Seed string used when generating a fresh map. If `null`, a random seed is selected. | Set to a fixed text (for example `"abc"`; a bare number is refused) to generate reproducible worlds. |
-| `map.width` | integer (min 100) | `1280` | Default map width in internal map coordinate units. | Change if you want newly generated maps to have a different default width. |
-| `map.height` | integer (min 100) | `720` | Default map height in internal map coordinate units. | Change if you want newly generated maps to have a different default height. |
+| `map.width` | integer (min 100) | `1920` | Default map width in internal map coordinate units. | Change if you want newly generated maps to have a different default width. |
+| `map.height` | integer (min 100) | `1080` | Default map height in internal map coordinate units. | Change if you want newly generated maps to have a different default height. |
 | `history` | object | `{ maxEntries: 30 }` | Group settings for undo and redo history. | Change when tuning how many undo states are retained. |
 | `history.maxEntries` | integer (min 1) | `30` | Maximum number of undo states kept on disk in `maps/history`. | Increase for deeper undo history, or decrease to save disk space. |
 | `autosave` | object | `{ intervalSec: 60 }` | Group settings for periodic map saves. | Change when adjusting how often background saves occur. |
@@ -63,6 +70,24 @@ The table below lists every configuration setting available in `config/fmg-mcp.j
 | `view.settleMs` | integer (min 0) | `200` | Pause in milliseconds to let the browser DOM settle after changes before taking a screenshot. | Increase if screenshot captures occur before map animations or re-renders complete. |
 | `view.maxImageBytes` | integer (min 10000) | `900000` | Maximum screenshot size in bytes before PNG automatically falls back to JPEG compression. | Adjust if your AI client rejects images exceeding a specific payload size. |
 | `view.textOnly` | boolean | `false` | When `true`, returns maps as character grids (ASCII art) instead of images. | Enable when using AI models that cannot accept image inputs. |
+| `export` | object | `{ ... }` | Default configuration for map picture exports (`map_export`). | Configure image format, quality, and clean mode for exports. |
+| `export.format` | string (`"png"` or `"jpeg"`) | `"png"` | Default picture format for `map_export`. | Set to `"jpeg"` for smaller export files. |
+| `export.jpegQuality` | integer (1 to 100) | `92` | Default compression quality used for JPEG exports. | Adjust between file weight and picture sharpness. |
+| `export.maxPixels` | integer (min 100) | `10000` | Maximum pixel dimension (width or height) allowed when exporting high-resolution images. | Increase if your system supports larger rendering dimensions. |
+| `export.clean` | boolean | `false` | When `true`, automatically strips game pictograms (port anchors, trade routes, markers, ice) during exports. | Enable by default to always export clean cartography. |
+| `export.cleanHide` | array of strings | `["#anchors", ...]` | CSS selectors hidden when clean mode is active. | Add selectors if you wish to suppress additional visual elements during clean exports. |
+| `view3d` | object | `{ ... }` | Default configuration and presets for 3D renders (`map_3d`). | Adjust 3D quality, formats, camera offsets, and render presets. |
+| `view3d.format` | string (`"png"`, `"jpeg"`, or `"webp"`) | `"png"` | Default image format for 3D picture exports. | Choose `"jpeg"` or `"webp"` for lighter files. |
+| `view3d.quality` | integer (1 to 100) | `92` | Compression quality for JPEG and WebP 3D captures. | Adjust quality versus file size. |
+| `view3d.hemisphereOffset` | number | `0.25` | Longitude offset fraction applied when rendering both hemispheres on a globe. | Adjust the viewing separation for two-hemisphere globe scenes. |
+| `view3d.presets` | object | `{ ... }` | Built-in presets for 3D views. | Customize presets used by `map_3d`. |
+| `view3d.presets.satellite` | object | `{ ... }` | Procedural satellite relief scene preset. | Relief terrain scene with procedural satellite textures. |
+| `view3d.presets.satellite.satellite` | boolean | `true` | Enables procedural satellite textures on relief terrain. | Toggle satellite surface coloring. |
+| `view3d.presets.satellite.erosion` | boolean | `false` | Enables hydraulic terrain erosion on the 3D relief mesh. | Toggle eroded terrain detail. |
+| `view3d.presets.heightmap` | object | `{ ... }` | Heightmap textured relief scene preset. | Relief scene textured with the topography layer preset. |
+| `view3d.presets.heightmap.layerPreset` | string | `"topography"` | Layer preset used as the terrain texture. | Change the layer combination used as texture. |
+| `view3d.presets.biomes` | object | `{ ... }` | Biome textured relief scene preset. | Relief scene textured with the biomes layer preset. |
+| `view3d.presets.biomes.layerPreset` | string | `"biomes"` | Layer preset used as the terrain texture. | Change the layer combination used as texture. |
 | `bridge` | object | `{}` | Key-value overrides applied to the in-page bridge (`AgentConfig`). | Use to customize bridge visual styles, timeouts, and limits without modifying source files. |
 | `limits` | object | `{ ... }` | Operational limits and safety thresholds for tools. | Change when adjusting tool pagination, zoom ranges, or timeout ceilings. |
 | `limits.listMax` | integer | `1000` | Hard cap on items returned by entity listing tools (`map_list`). | Change if you need to fetch larger batches of entities in a single tool call. |
@@ -129,6 +154,31 @@ The bridge runs inside the web page and handles map queries, selections, and edi
 | `uiOptionsMax` | number | `40` | Maximum number of selectable options returned per input field when querying dialog controls. |
 | `uiTextMax` | number | `1500` | Maximum characters of dialog text returned when inspecting open dialog windows. |
 | `menuListMax` | number | `200` | Default maximum number of actions returned when querying Azgaar's action menu with `map_menu list`. |
+| `legendMarginPct` | number | `0.02` | Outer margin around legend boxes as a percentage of map dimensions. |
+| `legendHeightSteps` | number | `10` | Number of elevation contour bands shown in the heightmap legend. |
+| `legendLongItems` | number | `60` | Threshold of legend items above which a warning is issued to recommend filtering by state or adding columns. |
+| `legendSeaSteps` | number | `3` | Number of oceanic depth bands shown in the elevation legend. |
+| `legendRainSamples` | number | `64` | Sample count used when computing precipitation legend color bands. |
+| `legendPopulationBarPx` | number | `140` | Width in pixels of the visual distribution bar in population legends. |
+| `legendMarketColor` | string | `"#664422"` | Primary color swatch used for market legend items. |
+| `legendTradeLandColor` | string | `"#aa6622"` | Color swatch for overland trade routes in the trade legend. |
+| `legendTradeWaterColor` | string | `"#2266aa"` | Color swatch for sea trade routes in the trade legend. |
+| `annotationHaloColor` | string | `"#ffffff"` | Color of the protective halo drawn around annotation text. |
+| `annotationColor` | string | `"#cc3333"` | Default drawing color for arrows, lines, markers, and regions in annotations. |
+| `annotationMarkerRadius` | number | `4` | Radius in screen pixels of annotation marker pins. |
+| `annotationFontSize` | number | `13` | Default font size in pixels for text annotations. |
+| `annotationStrokeWidth` | number | `2` | Stroke width in pixels for drawn lines, arrows, and borders in annotations. |
+| `annotationAreaOpacity` | number | `0.25` | Background fill opacity for annotated area polygons. |
+| `annotationTextMax` | number | `80` | Maximum character length accepted for individual annotation text labels. |
+| `temperatureMin` | number | `-30` | Minimum baseline temperature in Celsius for temperature layer legends. |
+| `temperatureMax` | number | `40` | Maximum baseline temperature in Celsius for temperature layer legends. |
+| `view3dPollMs` | number | `80` | Polling interval in milliseconds when waiting for the 3D scene to stop moving. |
+| `view3dStableReads` | number | `3` | Number of consecutive identical reads required before considering the 3D view stabilized. |
+| `view3dTimeoutMs` | number | `8000` | Maximum milliseconds to wait for a 3D scene to stabilize before taking a picture. |
+| `view3dStableDiff` | number | `0.5` | Maximum allowable pixel variance between consecutive frames to consider 3D rendering finished. |
+| `view3dSampleSize` | number | `64` | Downsampled probe dimension in pixels used to detect movement in 3D canvas rendering. |
+| `view3dTextureMax` | number | `4096` | Upper limit on texture resolution for 3D terrain rendering. |
+| `view3dDefaultDistance` | object | `{ relief: 1000, globe: 1800 }` | Default camera distance in scene units for relief and globe views. |
 
 ## Script Command-Line Options
 

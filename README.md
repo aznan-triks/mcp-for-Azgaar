@@ -117,15 +117,17 @@ Available tools:
 - `map_options`: Reads and sets how the next map is generated (number of states, cultures, religions, heightmap template, climate, units, calendar, map name...), checked by Azgaar's own rules.
 - `map_menu`: Runs Azgaar's own actions: open any editor or overview, regenerate rivers, cities, cultures, religions, states, markers, military, economy..., open charts.
 - `map_ui`: Operates Azgaar's screen like a person: dialogs, the side menu, any button, field or drop-down, even file pickers (for example importing a heightmap picture).
+- `map_legend`: Displays or hides on-screen legend boxes for layer colors (states, provinces, biomes, elevation, trade...).
+- `map_3d`: Takes a 3D relief or planetary globe picture using Azgaar's built-in 3D engine.
 
 ### Can the AI use 100% of Azgaar?
 
 Practically yes, in three layers:
 1. **Dedicated commands** (`map_apply`, `map_select`) for the map edits that need precision: borders, states, provinces, cultures, religions, cities, rivers, routes, markers, labels, emblems, terrain.
 2. **Azgaar's own action menu and its screen** (`map_menu` + `map_ui`) for everything else the interface offers: every editor and overview, every regenerate button, styles, notes, units, biomes, diplomacy, zones, military, goods and markets, the image converter...
-3. **Exports and settings** (`map_export`, `map_options`) for getting data and pictures out, and for generating maps the way you want.
+3. **Exports, 3D scenes and settings** (`map_export`, `map_3d`, `map_legend`, `map_options`) for getting data, rendered scenes and pictures out, and for generating maps the way you want.
 
-Honest limits: free-hand drawing on the map with the mouse (brush strokes) is replaced by the terrain and selection commands; the 3D views and Azgaar's online features (its built-in chat assistant, cloud saves) are not supported; operating dialogs through `map_ui` is only as reliable as the dialog itself. For anything left, `allowEval` in `config/fmg-mcp.json` lets an AI run its own code inside the map page (off by default, advanced).
+Honest limits: free-hand drawing on the map with the mouse (brush strokes) is replaced by the terrain and selection commands; Azgaar's online features (its built-in chat assistant, cloud saves) are not supported; operating dialogs through `map_ui` is only as reliable as the dialog itself. For anything left, `allowEval` in `config/fmg-mcp.json` lets an AI run its own code inside the map page (off by default, advanced).
 
 ## Documentation
 
