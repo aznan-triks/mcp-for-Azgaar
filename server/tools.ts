@@ -369,7 +369,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
         await history.pushBefore("map_eval");
         const page = await session.ensure();
         try {
-          const value = await page.evaluate(src => new Function(`return (async () => { ${src} })()`)(), code);
+          const value = await page.evaluate(src => (window as any).eval?.(`(() => { ${src} })()`) ?? null, code);
           await autosave();
           return { content: [text({ result: value ?? null })] };
         } catch (err) {

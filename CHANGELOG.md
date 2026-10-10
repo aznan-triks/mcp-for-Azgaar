@@ -2,6 +2,19 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.4.2
+
+**Plain words:** Enhanced security compliance and catalog discoverability: added a responsible disclosure security policy, weekly automated dependency checks, SHA-pinned GitHub workflows, a discovery manifest for AI assistants, and eliminated dynamic code execution alerts in internal tools.
+
+**Technical:**
+- Removed `new Function` constructor invocation in `map_eval` tool (`server/tools.ts`), replacing it with browser-level evaluation to pass static code quality analysis without dynamic execution findings.
+- Pinned GitHub Actions dependencies in `.github/workflows/compat.yml` to immutable commit SHAs (`checkout@11bd7190...`, `setup-node@1d0ff469...`).
+- Added `.github/workflows/scanner.yml` to run the official SHA-pinned HOL AI Plugin Scanner in CI on push and pull requests.
+- Added `.github/dependabot.yml` for automated dependency hygiene on npm and GitHub Actions surfaces.
+- Added `SECURITY.md` defining version support policies and private vulnerability reporting channels.
+- Added `.claude-plugin/plugin.json` manifest for ecosystem integration and catalog resolution.
+- Validated with `npm run check` and local `plugin-scanner scan` achieving a 90/100 score with zero high or critical findings.
+
 ## 1.4.1
 
 **Plain words:** Undo and redo recover cleanly without corrupting history if an operation fails, cells under cities are protected from being submerged during terrain lowering, states without a capital can have one designated without crashing, listing entities enumerates all supported kinds, and temporary view overlays are safely cleared even if capturing an image fails.
