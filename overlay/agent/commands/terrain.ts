@@ -126,9 +126,13 @@ async function applyGridHeights(
   const burgsBefore = aliveBurgs();
   const burgGridCells = new Set<number>(pack.burgs.filter(b => b.i && !b.removed).map(b => pack.cells.g[b.cell]));
   let protectedBurgCells = 0;
-  for (const [g, next] of changes) if (burgGridCells.has(g) && !isLand(next)) protectedBurgCells += 1;
-
-  for (const [g, next] of changes) h[g] = next;
+  for (const [g, next] of changes) {
+    if (burgGridCells.has(g) && !isLand(next)) {
+      protectedBurgCells += 1;
+      continue;
+    }
+    h[g] = next;
+  }
 
   const editor = options.app.heightmapEditor;
   const previousErosion = editor.allowErosion;

@@ -2,6 +2,19 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.4.1
+
+**Plain words:** Undo and redo recover cleanly without corrupting history if an operation fails, cells under cities are protected from being submerged during terrain lowering, states without a capital can have one designated without crashing, listing entities enumerates all supported kinds, and temporary view overlays are safely cleared even if capturing an image fails.
+
+**Technical:**
+- History stack recovery: `undo()` and `redo()` wrap state restoration in `try-catch`, restoring past/future stack pointers on failure to prevent history corruption.
+- Burg cell drowning protection: `applyGridHeights` avoids lowering grid cells hosting cities below sea level during landform modifications.
+- Capital assignment guard: `setCapital` gracefully handles states lacking a preexisting capital (`oldCapital` null guard) without throwing `TypeError`.
+- Entity list completeness: `LIST_KINDS` in queries includes `"markerTypes"` and `"rivers"`, ensuring error messages enumerate all 10 valid kinds.
+- Annotation cleanup safety: wrapped annotation application and screenshot capturing in `try-finally` in `map_view` to guarantee `clearAnnotations()` execution.
+- Parameter boundary verification: expanded test suite in `test/mcp.e2e.test.ts` covering invalid inputs across all tools, flooding prevention, capital assignment, and query kinds (31 e2e tests).
+- Verified via `npm run check` (types, lint, architecture rules, smoke tests, and 31 e2e tests).
+
 ## 1.4.0
 
 **Plain words:** You can now export a composite dual-hemisphere planetary diptych with orbital cartouche and atmospheric Rayleigh limb glow, uncheckpointed manual edits are automatically protected by a rescue snapshot before any undo, the AI can filter entities spatially (by bounding box, compass direction, or distance to a city or river), dialogs close automatically before edits, and diagnostic checks gracefully fall back to an available port when the default port is busy.

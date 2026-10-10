@@ -40,6 +40,8 @@ Screenshot of what the browser window currently shows, plus a legend (state ids/
 | `text_map` | boolean | no | Answer with a map drawn in characters instead of a screenshot (for models that cannot see images) |
 | `cols` | integer (min -9007199254740991, max 9007199254740991) | no | Width of the character map |
 | `rows` | integer (min -9007199254740991, max 9007199254740991) | no | Height of the character map |
+| `format` | one of: `png`, `jpeg` | no |  |
+| `max_image_bytes` | integer (min 10000, max 50000000) | no |  |
 
 ## map_status
 

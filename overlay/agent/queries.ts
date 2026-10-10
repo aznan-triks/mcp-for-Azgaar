@@ -117,7 +117,9 @@ export const LIST_KINDS = [
   "burgs",
   "markers",
   "routes",
-  "labels"
+  "labels",
+  "markerTypes",
+  "rivers"
 ] as const;
 
 export function list(

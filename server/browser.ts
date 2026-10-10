@@ -212,13 +212,18 @@ export class MapSession {
     }
   }
 
-  /** PNG keeps map text sharp; if it is too heavy for MCP clients, the same view is sent as JPEG instead. */
-  async screenshot(): Promise<{ data: Buffer; mimeType: string }> {
+  /**
+   * PNG keeps map text sharp; if it is heavier than the limit (view.maxImageBytes, or `maxBytes` for this call),
+   * the same view is sent as JPEG instead. `format` overrides view.format for this call.
+   */
+  async screenshot(opts: { format?: "png" | "jpeg"; maxBytes?: number } = {}): Promise<{ data: Buffer; mimeType: string }> {
     const page = await this.ensure();
-    const { format, jpegQuality, maxImageBytes } = this.cfg.view;
+    const { jpegQuality, maxImageBytes } = this.cfg.view;
+    const format = opts.format ?? this.cfg.view.format;
+    const maxBytes = opts.maxBytes ?? maxImageBytes;
     if (format === "png") {
       const png = await page.screenshot({ type: "png" });
-      if (png.length <= maxImageBytes) return { data: png, mimeType: "image/png" };
+      if (png.length <= maxBytes) return { data: png, mimeType: "image/png" };
     }
     return { data: await page.screenshot({ type: "jpeg", quality: jpegQuality }), mimeType: "image/jpeg" };
   }

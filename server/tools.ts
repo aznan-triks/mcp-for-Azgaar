@@ -20,10 +20,10 @@ const text = (value: unknown): Content => ({ type: "text", text: typeof value ==
 
 export const SERVER_INSTRUCTIONS = `You edit a fantasy map shown live in a browser window (Azgaar's Fantasy Map Generator, offline). The person watches the window and may also edit by hand: look before you act.
 Workflow: map_summary (states, ids) -> map_view with grid/state_ids (you see the map; add region {x0,y0,x1,y1} to zoom on an area; if you cannot see images, pass text_map:true to get the map drawn in characters) -> map_select (red preview appears live) -> map_view to check the preview -> map_apply -> map_view to verify.
-Finding things: when the person names a city or state, use map_list with name (case-insensitive part of the name) to get its id and position. Lists are cut at 50 rows by default; total is the real count.
+Finding things: when the person names a city or state, use map_list with name (case-insensitive part of the name) to get its id and position. Lists are cut at 50 rows by default; total is the real count. For "what is near / inside / north of ...", add rect, or near (+ within, direction) to map_list instead of reading the whole list.
 Coordinates: "map units" are the map's own coordinates (the graticule labels in map_view). Screenshot pixels are the browser window pixels: convert with map_locate {px,py}. Cells have integer ids; states, provinces, cultures, religions, burgs (cities), rivers, routes and markers too (0 = none/unclaimed).
-Extending a state: map_select shape ring {state, depth} (cells just outside it), optionally intersect with a rect to go one way only (combine_op intersect), then map_apply assignState. Capitals are never taken. Merging states: mergeStates; founding one: createState; provinces: createProvince (needs state-owned land); cultures: createCulture (then give it cells with assignCulture); religions: createReligion. Labels: map_list kind=labels shows them, moveLabel shifts/hides/resets one. Emblems: regenerateEmblem / setEmblemStyle. Legends: map_legend explains the colours of a layer (states, provinces, cultures, religions, biomes, heightmap...). 3D scenes and globes: map_3d. Annotations: map_apply annotate puts arrows, markers, lines, areas and text permanently on the map.
-Every map_apply is undoable with map_undo, and a failed edit restores the map by itself. Prefer small, verifiable steps; report what changed using the numbers returned and the warnings.
+Extending a state: map_select shape ring {state, depth} (cells just outside it), optionally intersect with a rect to go one way only (combine_op intersect), then map_apply assignState. Capitals are never taken. Merging states: mergeStates; founding one: createState; provinces: createProvince (needs state-owned land); cultures: createCulture (then give it cells with assignCulture); religions: createReligion. Labels: map_list kind=labels shows them, moveLabel shifts/hides/resets one. Emblems: regenerateEmblem / setEmblemStyle. Legends: map_legend explains the colours of a layer (states, provinces, cultures, religions, biomes, heightmap...). 3D scenes and globes: map_3d (hemispheres: "diptych" generates a complete dual-hemisphere plate). Annotations: map_apply annotate puts arrows, markers, lines, areas and text permanently on the map.
+Every map_apply is undoable with map_undo, and a failed edit restores the map by itself. Undoing automatically saves maps/rescue-before-undo.map first to safeguard hand edits. Open dialogs are closed automatically before mutating. Prefer small, verifiable steps; report what changed using the numbers returned and the warnings.
 Edits to relief, cultures, religions, provinces or rivers are only visible when their layer is on: use map_layers (e.g. show heightmap or relief to check terrain).
 Terrain edits keep coasts and lakes frozen by default (scope land): fast and nothing else changes. Use scope all to create/remove land or lakes; that rebuilds the map, renumbers cells and may shift coastal borders by a cell elsewhere. Open sea is not selectable: shapeCone / shapeRidge can raise an island there.
 Call map_commands once to learn the available edit commands and their exact parameters.
@@ -41,8 +41,8 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
       }
     };
 
-  const screenshotContent = async (): Promise<Content> => {
-    const { data, mimeType } = await session.screenshot();
+  const screenshotContent = async (opts?: { format?: "png" | "jpeg"; maxBytes?: number }): Promise<Content> => {
+    const { data, mimeType } = await session.screenshot(opts);
     return { type: "image", data: data.toString("base64"), mimeType };
   };
   const settle = () => new Promise<void>(r => setTimeout(r, cfg.view.settleMs));
@@ -84,18 +84,27 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
         whole_map: z.boolean().optional(),
         text_map: z.boolean().optional().describe("Answer with a map drawn in characters instead of a screenshot (for models that cannot see images)"),
         cols: z.number().int().optional().describe("Width of the character map"),
-        rows: z.number().int().optional().describe("Height of the character map")
+        rows: z.number().int().optional().describe("Height of the character map"),
+        format: z.enum(["png", "jpeg"]).optional(),
+        max_image_bytes: z.number().int().min(cfg.limits.imageBytesMin).max(cfg.limits.imageBytesMax).optional()
       }
     },
-    guarded(async ({ grid, state_ids, cell_ids, region, whole_map, text_map, cols, rows }) => {
+    guarded(async ({ grid, state_ids, cell_ids, region, whole_map, text_map, cols, rows, format, max_image_bytes }) => {
       if (whole_map && !region) await session.call("setCamera", { scale: 1, duration: 0 });
       if (region) await session.call("showRegion", region);
       const wantsNotes = Boolean(grid || state_ids || cell_ids);
-      const notes = wantsNotes ? await session.call<Record<string, unknown>>("annotate", { grid, stateIds: state_ids, cellIds: cell_ids }) : {};
-      await settle();
-      const asText = text_map ?? cfg.view.textOnly;
-      const image = asText ? text(await session.call("textMap", { cols, rows })) : await screenshotContent();
-      if (wantsNotes) await session.call("clearAnnotations");
+      let notes: Record<string, unknown> = {};
+      let image: Content;
+      try {
+        if (wantsNotes) {
+          notes = await session.call<Record<string, unknown>>("annotate", { grid, stateIds: state_ids, cellIds: cell_ids });
+        }
+        await settle();
+        const asText = text_map ?? cfg.view.textOnly;
+        image = asText ? text(await session.call("textMap", { cols, rows })) : await screenshotContent({ format, maxBytes: max_image_bytes });
+      } finally {
+        if (wantsNotes) await session.call("clearAnnotations").catch(() => undefined);
+      }
       const info = await session.call<{ states: { id: number; name: string; color: string }[]; camera: { scale?: number } }>("summary");
       const camera = info.camera;
       const coverageNote = (!whole_map && !region && camera && typeof camera.scale === "number" && camera.scale > 1.05)

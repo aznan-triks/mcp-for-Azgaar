@@ -102,8 +102,16 @@ export class History {
     } catch {
       /* ignore rescue save error so undo still functions */
     }
-    this.future.push(await this.snapshot(entry.label));
-    await this.restore(entry);
+    const futureEntry = await this.snapshot(entry.label);
+    this.future.push(futureEntry);
+    try {
+      await this.restore(entry);
+    } catch (err) {
+      this.future.pop();
+      this.forget(futureEntry);
+      this.past.push(entry);
+      throw err;
+    }
     this.forget(entry);
     return { ...entry, rescueFile };
   }
@@ -111,8 +119,16 @@ export class History {
   async redo(): Promise<Entry> {
     const entry = this.future.pop();
     if (!entry) throw new Error("Nothing to redo");
-    this.past.push(await this.snapshot(entry.label));
-    await this.restore(entry);
+    const pastEntry = await this.snapshot(entry.label);
+    this.past.push(pastEntry);
+    try {
+      await this.restore(entry);
+    } catch (err) {
+      this.past.pop();
+      this.forget(pastEntry);
+      this.future.push(entry);
+      throw err;
+    }
     this.forget(entry);
     return entry;
   }

@@ -520,5 +520,81 @@ describe("MCP server end to end", { timeout: 300000 }, () => {
     await ok("map_summary");
     assert.equal(json(await ok("map_status")).browserOpen, true, "the first map tool opens it");
   });
+
+  it("map_list error message enumerates all 10 kinds including markerTypes and rivers", async () => {
+    const bad = await call("map_list", { kind: "nonexistent_kind" });
+    assert.equal(bad.isError, true);
+    const msg = bad.content[0]?.text ?? "";
+    for (const expectedKind of ["states", "provinces", "cultures", "religions", "burgs", "markers", "routes", "labels", "markerTypes", "rivers"]) {
+      assert.ok(msg.includes(expectedKind), `error message must include kind "${expectedKind}": ${msg}`);
+    }
+  });
+
+  it("setCapital works cleanly when a state has no prior capital", async () => {
+    const burgs = json(await ok("map_list", { kind: "burgs", limit: 1000 })).rows;
+    const nonCapBurg = burgs.find((b: any) => !b.capital && b.state > 0);
+    assert.ok(nonCapBurg, "must find a non-capital burg belonging to a state");
+    await ok("map_eval", { code: `pack.states[${nonCapBurg.state}].capital = 0; return true` });
+    const res = json(await ok("map_apply", { command: "setCapital", params: { burg: nonCapBurg.id } }));
+    assert.equal(res.result.ok, true);
+    assert.equal(res.result.details.newCapital, nonCapBurg.id);
+    assert.equal(res.result.details.oldCapital, null);
+    await ok("map_undo", { action: "undo" });
+  });
+
+  it("terrain lowering protects cells under cities from submersion below sea level", async () => {
+    const burg = json(await ok("map_list", { kind: "burgs", limit: 1 })).rows[0];
+    const cellLoc = json(await ok("map_locate", { cell: burg.cell }));
+    const gx = cellLoc.x;
+    const gy = cellLoc.y;
+    const res = json(await ok("map_apply", {
+      command: "shapeCone",
+      params: { x: gx, y: gy, radius: 30, peak: 5, scope: "all" }
+    }));
+    assert.equal(res.result.ok, true);
+    assert.ok(res.result.warnings.some((w: string) => w.includes("could not be lowered below sea level")), "warning confirms protection");
+    const afterLoc = json(await ok("map_locate", { cell: burg.cell }));
+    assert.ok(afterLoc.height >= 20, `city height must remain >= 20, got ${afterLoc.height}`);
+    await ok("map_undo", { action: "undo" });
+  });
+
+  it("exhaustively tests boundary conditions and bad parameters on all tools", async () => {
+    assert.ok((await call("map_locate", { cell: -1 })).isError);
+    assert.ok((await call("map_locate", { cell: 9999999 })).isError);
+    assert.ok((await call("map_locate", { px: 100 })).isError);
+    assert.ok((await call("map_locate", { x: -99999, y: -99999 })).isError);
+
+    assert.ok((await call("map_select", { shape: "unknown_shape", args: {} })).isError);
+    assert.ok((await call("map_select", { shape: "border", args: { from: 1, to: 1, depth: 2 } })).isError);
+    assert.ok((await call("map_select", { shape: "cells", args: { cells: [-5, 999999] } })).isError);
+    assert.ok((await call("map_select", { shape: "circle", args: { x: 100, y: 100, radius: -10 } })).isError);
+
+    assert.ok((await call("map_camera", { scale: -1 })).isError);
+    assert.ok((await call("map_camera", { scale: 100 })).isError);
+    assert.ok((await call("map_camera", { duration_ms: -50 })).isError);
+
+    assert.ok((await call("map_view", { region: { x0: 500, y0: 500, x1: 200, y1: 200 } })).isError);
+    assert.ok((await call("map_view", { format: "invalid_format" })).isError);
+
+    assert.ok((await call("map_layers", { show: ["nonexistent_layer_xyz"] })).isError);
+    assert.ok((await call("map_layers", { preset: "nonexistent_preset_xyz" })).isError);
+
+    assert.ok((await call("map_legend", { action: "invalid_action" })).isError);
+    assert.ok((await call("map_legend", { action: "show", layer: "custom", items: "badly-formatted-item" })).isError);
+
+    assert.ok((await call("map_export", { width: -50 })).isError);
+    assert.ok((await call("map_export", { format: "unsupported_fmt" })).isError);
+    assert.ok((await call("map_export", { resolution: 10 })).isError);
+
+    assert.ok((await call("map_3d", { mode: "unknown_mode" })).isError);
+    assert.ok((await call("map_3d", { mode: "globe", preset: "satellite" })).isError);
+    assert.ok((await call("map_3d", { mode: "relief", hemispheres: "both" })).isError);
+
+    assert.ok((await call("map_file", { action: "save", name: "../escaped" })).isError);
+    assert.ok((await call("map_file", { action: "load", name: "" })).isError);
+    assert.ok((await call("map_file", { action: "unknown_action" })).isError);
+
+    assert.ok((await call("map_undo", { action: "unknown_undo_action" })).isError);
+  });
 });
 

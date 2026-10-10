@@ -182,20 +182,22 @@ const setCapital: Command = {
     if (!burg.state) throw new AgentError("Neutral lands cannot have a capital: give the city to a state first");
     // Same steps as the burg editor's toggleCapital.
     const state = pack.states[burg.state];
-    const oldCapital = pack.burgs[state.capital as number];
+    const oldCapital = state.capital ? pack.burgs[state.capital as number] : null;
     state.capital = id;
     state.center = burg.cell;
     burg.capital = 1;
     Burgs.changeGroup(burg);
-    oldCapital.capital = 0;
-    Burgs.changeGroup(oldCapital);
+    if (oldCapital && !oldCapital.removed) {
+      oldCapital.capital = 0;
+      Burgs.changeGroup(oldCapital);
+    }
     Layers.draw("burgIcons", "labels");
     refreshStatistics();
     return {
       ok: true,
       message: `"${burg.name}" is now the capital of ${state.fullName ?? state.name}`,
       changed: 1,
-      details: { state: state.i, newCapital: id, oldCapital: oldCapital.i }
+      details: { state: state.i, newCapital: id, oldCapital: oldCapital ? oldCapital.i : null }
     };
   }
 };
