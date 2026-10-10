@@ -2,6 +2,15 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.4.3
+
+**Plain words:** Compatibility with newer Azgaar versions: updating to Azgaar v1.154.0 or beyond now succeeds seamlessly without province reconciliation patch failures.
+
+**Technical:**
+- `scripts/azgaar.mjs`: added fallback patch for `adjustProvinces()` when encapsulated as a private method in `StatesModule` (`src/generators/states-generator.ts`), exposing it on `States`, providing a module-level export, and re-exporting in `src/controllers/states-editor.ts` for backward compatibility.
+- `overlay/agent/commands/states.ts` & `overlay/agent/commands/territory.ts`: adaptive province reconciliation checks `(States as any)?.adjustProvinces` first before falling back to `states-editor` dynamic import.
+- Verified: `npm run check` passes 100% (31 e2e tests), and standalone verification against Azgaar v1.154.0 passes all patch and compatibility checks (`compat.mjs`).
+
 ## 1.4.2
 
 **Plain words:** Enhanced security compliance and catalog discoverability: added a responsible disclosure security policy, weekly automated dependency checks, SHA-pinned GitHub workflows, a discovery manifest for AI assistants, and eliminated dynamic code execution alerts in internal tools.

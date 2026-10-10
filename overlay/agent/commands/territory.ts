@@ -86,9 +86,13 @@ const assignState: Command = {
         burgsMoved += 1;
       }
     }
-    const { adjustProvinces } = await import("@/controllers/states-editor");
     States.getPoles();
-    adjustProvinces([...new Set(affectedProvinces)]);
+    if (typeof (States as any)?.adjustProvinces === "function") {
+      (States as any).adjustProvinces([...new Set(affectedProvinces)]);
+    } else {
+      const { adjustProvinces } = await import("@/controllers/states-editor");
+      adjustProvinces([...new Set(affectedProvinces)]);
+    }
     Layers.draw("states", "borders", "provinces");
     for (const id of touched) if (pack.states[id]?.label) delete pack.states[id].label;
     Layers.draw("labels");

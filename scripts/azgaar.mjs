@@ -106,6 +106,27 @@ export function applyPatches(dir) {
       if (exported.test(body)) { status = "already"; break; }
       if (declare.test(body)) { writeFileSync(f, body.replace(declare, "export $1")); status = "applied"; break; }
     }
+    // Azgaar v1.154.0+: adjustProvinces was moved into StatesModule (generators/states-generator.ts) as a private method
+    if (name === "adjustProvinces" && status === "missing") {
+      const statesGen = files.find(f => /states-generator\.ts$/.test(f));
+      if (statesGen) {
+        let body = read(statesGen);
+        if (/private\s+adjustProvinces\s*\(/.test(body)) {
+          body = body.replace(/private\s+adjustProvinces\s*\(/, "adjustProvinces(");
+          body += "\nexport function adjustProvinces(affectedProvinces: number[]): void { States.adjustProvinces(affectedProvinces); }\n";
+          writeFileSync(statesGen, body);
+          status = "applied";
+          const statesEditor = files.find(f => /states-editor\.ts$/.test(f));
+          if (statesEditor) {
+            let seBody = read(statesEditor);
+            if (!seBody.includes("adjustProvinces")) {
+              seBody += '\nexport { adjustProvinces } from "@/generators/states-generator";\n';
+              writeFileSync(statesEditor, seBody);
+            }
+          }
+        }
+      }
+    }
     note(`export ${name}()`, status, true);
   }
 
