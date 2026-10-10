@@ -1,0 +1,20 @@
+{
+  "name": "mcp-for-azgaar",
+  "description": "MCP server connecting AI assistants to Azgaar's Fantasy Map Generator to inspect geography, manage realms, and edit maps locally.",
+  "version": "1.4.2",
+  "author": {
+    "name": "aznan-triks",
+    "url": "https://github.com/aznan-triks"
+  },
+  "homepage": "https://github.com/aznan-triks/mcp-for-Azgaar",
+  "repository": "https://github.com/aznan-triks/mcp-for-Azgaar.git",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "azgaar",
+    "fantasy-map-generator",
+    "claude-code",
+    "maps"
+  ]
+}
