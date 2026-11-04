@@ -44,7 +44,7 @@ const createCulture: Command = {
     const [x, y] = [round(p.x as number, 2), round(p.y as number, 2)];
     const center = freeLandCenter(x, y, pack.cultures, "culture");
     // Same steps as the "add culture" tool of the cultures editor.
-    Cultures.add(center);
+    Cultures.add(x, y);
     const culture = pack.cultures.at(-1) as {
       i: number;
       name: string;
@@ -88,7 +88,7 @@ const createReligion: Command = {
     const [x, y] = [round(p.x as number, 2), round(p.y as number, 2)];
     const center = freeLandCenter(x, y, pack.religions, "religion");
     // Same steps as the "add religion" tool of the religions editor.
-    Religions.add(center);
+    Religions.add(x, y);
     const religion = pack.religions.at(-1) as {
       i: number;
       name: string;

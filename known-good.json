@@ -1,5 +1,6 @@
 {
-  "ref": "574861c583177ebfd078733d6eb43d67a9e4fb65",
-  "label": "Azgaar's Fantasy Map Generator 1.153.1",
-  "note": "Last Azgaar version this bridge was fully tested against. `npm run setup` installs it; `npm run update` tries newer ones and keeps this one if they break."
+  "ref": "6d69387f79cff630f0a9eaa45ba5108eb7f65335",
+  "tag": "v1.154.1",
+  "label": "Azgaar's Fantasy Map Generator 1.154.1",
+  "note": "Verified against the local bridge. The tag resolves to this commit; the 403a670059be49464ba277b93207e7828311b027 commit mentioned in the original plan is a later development commit, not the v1.154.1 release."
 }

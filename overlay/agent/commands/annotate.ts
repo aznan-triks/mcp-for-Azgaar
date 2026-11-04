@@ -1,5 +1,6 @@
 import { color } from "d3";
 import { config } from "../config";
+import { createSubmap } from "../submap";
 import { AgentError, type Command, type CommandResult, type Params } from "../types";
 
 const SVG_NS = "http://www.w3.org/2000/svg"; // const-ok: the SVG XML namespace
@@ -157,4 +158,23 @@ const annotate: Command = {
   }
 };
 
-export const annotateCommands: Command[] = [annotate];
+const submap: Command = {
+  name: "createSubmap",
+  description:
+    "Destructively resample a region into a new map, undoable through map_undo. MCP saves maps/pre-submap.map before resampling. Needs explicit confirmDestructiveResample:true. Bounds are expanded to the native canvas ratio, never stretched; effective bounds are returned. Native generation density is reused. Selections and free annotations are cleared in the child.",
+  params: {
+    x0: { type: "number", required: true, description: "Left edge in map units" },
+    y0: { type: "number", required: true, description: "Top edge in map units" },
+    x1: { type: "number", required: true, description: "Right edge in map units" },
+    y1: { type: "number", required: true, description: "Bottom edge in map units" },
+    confirmDestructiveResample: {
+      type: "boolean",
+      required: true,
+      description: "Must be true; use map_view/map_export inset for a non-destructive loupe"
+    },
+    rescaleBurgStyles: { type: "boolean", description: "Scale native burg icons and labels (default true)" }
+  },
+  run: createSubmap
+};
+
+export const annotateCommands: Command[] = [annotate, submap];

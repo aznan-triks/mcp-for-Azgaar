@@ -17,8 +17,9 @@ function config() {
   cfg.browser.executablePath = null;
   cfg.browser.args = args;
   cfg.profileDir = join(work, `profile-${Math.random().toString(36).slice(2)}`);
-  cfg.map.seed = "333";
-  cfg.browser.viewport = { width: 1280, height: 720 }; cfg.map.width = 1280; cfg.map.height = 720;
+  cfg.map.seed = "trois";
+  cfg.browser.viewport = { width: 1280, height: 720 }; cfg.map.width = 1280; cfg.map.height = 720; // tests do not depend on the user-facing default size
+
   return cfg;
 }
 

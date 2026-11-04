@@ -38,7 +38,7 @@ const createState: Command = {
       );
     const createdBurg = !burgId;
     if (!burgId) {
-      burgId = Burgs.add([x, y]);
+      burgId = Burgs.add(x, y);
       redrawEmblem("burg", burgId);
     }
 
@@ -99,12 +99,7 @@ const createState: Command = {
     States.findNeighbors();
     States.collectStatistics();
     States.defineStateForms([newState]);
-    if (typeof (States as any)?.adjustProvinces === "function") {
-      (States as any).adjustProvinces([cells.province[center]]);
-    } else {
-      const { adjustProvinces } = await import("@/controllers/states-editor");
-      adjustProvinces([cells.province[center]]);
-    }
+    States.adjustProvinces([cells.province[center]]);
     Layers.draw("burgIcons", "labels", "routes");
     redrawEmblem("state", newState);
     Layers.draw("states", "borders");

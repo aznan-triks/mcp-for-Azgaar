@@ -1,7 +1,7 @@
 {
   "name": "mcp-for-azgaar",
   "description": "MCP server connecting AI assistants to Azgaar's Fantasy Map Generator to inspect geography, manage realms, and edit maps locally.",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "author": {
     "name": "aznan-triks",
     "url": "https://github.com/aznan-triks"

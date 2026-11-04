@@ -1,11 +1,12 @@
 /** Parameter description, used both for validation and for the tool listing shown to the AI. */
 export interface ParamSpec {
-  type: "number" | "integer" | "string" | "boolean" | "integers" | "points" | "path";
+  type: "number" | "integer" | "string" | "boolean" | "integers" | "units" | "points" | "path" | "record" | "scalar";
   description: string;
   required?: boolean;
   min?: number;
   max?: number;
   enum?: readonly string[];
+  allowEmpty?: boolean; // string only: an explicitly empty value is meaningful (it clears a text)
 }
 
 export type ParamSpecs = Record<string, ParamSpec>;

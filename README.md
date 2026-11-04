@@ -137,7 +137,7 @@ Honest limits: free-hand drawing on the map with the mouse (brush strokes) is re
 - [Configuration](docs/CONFIGURATION.md): every setting, environment variable and command-line option.
 - [Tools reference](docs/TOOLS.md) and [Edit commands](docs/COMMANDS.md): every tool and command with its parameters (generated from the code, always exact).
 - [Security and privacy](docs/SECURITY.md) and [Uninstall](docs/UNINSTALL.md).
-- [Architecture](docs/ARCHITECTURE.md) and [Changelog](CHANGELOG.md): for developers.
+- [Architecture](docs/ARCHITECTURE.md), [Design decisions](docs/DESIGN.md) and [Changelog](CHANGELOG.md): for developers. Run the checks with `npm run check` (`npm run test` does the same).
 - En français : [docs/fr/](docs/fr/README.md).
 
 ## For Developers

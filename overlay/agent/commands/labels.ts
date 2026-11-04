@@ -57,7 +57,7 @@ const moveLabel: Command = {
     const before = labelState(kind, id);
     const changed: Record<string, unknown> = {};
     if (p.reset === true) {
-      Labels.resetOverride(kind, id);
+      Labels.reset(kind, id);
       changed.reset = true;
     } else {
       if (p.dx !== undefined || p.dy !== undefined) {

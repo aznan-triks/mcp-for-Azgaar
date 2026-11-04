@@ -27,7 +27,8 @@ export const SPATIAL_KINDS = [
   "markers",
   "routes",
   "labels",
-  "rivers"
+  "rivers",
+  "military"
 ] as const;
 
 function finite(value: unknown, what: string): number {
@@ -119,6 +120,9 @@ export function pointsOfEntry(kind: string, row: Record<string, unknown>): Point
       return marker ? [[marker.x, marker.y]] : [];
     }
     case "labels":
+      return typeof row.x === "number" && typeof row.y === "number" ? [[row.x, row.y]] : [];
+    case "military":
+      // regiments carry their exact position in their row already
       return typeof row.x === "number" && typeof row.y === "number" ? [[row.x, row.y]] : [];
     case "states":
       return cellPoints([pack.states[id]?.center ?? -1]);

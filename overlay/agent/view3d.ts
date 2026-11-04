@@ -2,15 +2,17 @@
 // this file only opens it with the requested settings, points the camera, waits for the picture to be finished and reads it.
 import { globeLayout } from "@/data/view-3d-options";
 import { config } from "./config";
+import { cellAt } from "./geometry";
 import { AgentError } from "./types";
 
 export interface View3dArgs {
   mode: "relief" | "globe";
-  satellite?: boolean; // procedural terrain texture (relief only)
-  erosion?: boolean; // eroded terrain (relief only)
-  atmosphere?: boolean; // relief: sky and horizon fog; the globe always has its starfield
-  sun?: { x: number; y: number; z?: number };
-  scale?: number; // relief height exaggeration
+  satellite?: boolean; // procedural terrain texture on relief or globe
+  erosion?: boolean; // eroded terrain on relief, baked bump detail on globe
+  atmosphere?: boolean; // relief: sky/fog; globe: Fresnel halo (default on for globe captures)
+  clouds?: boolean; // procedural globe clouds (default off)
+  sun?: { x: number; y: number; z?: number } | { azimuth: number; altitude: number };
+  scale?: number; // relief height exaggeration / globe satellite shading
   textureResolution?: number;
   labels?: boolean;
   rotation?: { x: number; y: number }; // see setView in the 3D renderer
@@ -19,6 +21,8 @@ export interface View3dArgs {
 
 type ThreeD = typeof options.app.threeD;
 let saved: ThreeD | null = null; // the person's own 3D settings, put back when the view is closed
+let globeRaycast: (() => { u: number; v: number } | null) | null = null;
+let globeState: (() => Record<string, unknown>) | null = null;
 
 const canvas3d = (): HTMLCanvasElement | null => document.getElementById("canvas3d") as HTMLCanvasElement | null;
 
@@ -28,19 +32,28 @@ const renderer = () => import("@/renderers/view-3d-renderer");
 export async function open3d(args: View3dArgs): Promise<Record<string, unknown>> {
   if (args.mode !== "relief" && args.mode !== "globe") throw new AgentError('open3d: mode must be "relief" or "globe"');
   const globe = args.mode === "globe";
-  if (globe && (args.satellite || args.erosion))
-    throw new AgentError("open3d: satellite and erosion only exist in relief mode");
   if (canvas3d()) await close3d();
   saved = structuredClone(options.app.threeD);
 
-  const sun = args.sun ? { x: args.sun.x, y: args.sun.y, z: args.sun.z ?? options.app.threeD.sun.z } : undefined;
+  // Accept the existing Cartesian sun vector and a more convenient
+  // azimuth/altitude pair (degrees) without changing the native renderer API.
+  let sun: ThreeD["sun"] | undefined;
+  if (args.sun) {
+    if ("azimuth" in args.sun) {
+      const az = (args.sun.azimuth * Math.PI) / 180;
+      const alt = (args.sun.altitude * Math.PI) / 180;
+      const r = config.view3dSunVectorLength;
+      sun = { x: r * Math.cos(alt) * Math.sin(az), y: r * Math.sin(alt), z: r * Math.cos(alt) * Math.cos(az) };
+    } else sun = { x: args.sun.x, y: args.sun.y, z: args.sun.z ?? options.app.threeD.sun.z };
+  }
   Options.set(o => {
     const t = o.app.threeD;
     t.rotateMesh = 0; // a still picture: no turntable
     t.rotateGlobe = 0;
-    if (args.satellite !== undefined) t.satellite = args.satellite;
-    if (args.erosion !== undefined) t.erosion = args.erosion;
-    if (args.atmosphere !== undefined) t.extendedWater = args.atmosphere;
+    t.satellite = args.satellite ?? false;
+    t.erosion = args.erosion ?? false;
+    t.extendedWater = args.atmosphere ?? (globe ? true : t.extendedWater);
+    t.clouds = globe ? (args.clouds ?? false) : false;
     if (sun) t.sun = sun;
     if (args.scale !== undefined) t.scale = args.scale;
     if (args.labels !== undefined) t.labels3d = args.labels;
@@ -55,6 +68,8 @@ export async function open3d(args: View3dArgs): Promise<Record<string, unknown>>
   $("#options3d").dialog("close"); // the settings dialog is for hands, not for pictures
 
   const r = await renderer();
+  globeRaycast = globe ? r.globeSurfaceUv : null;
+  globeState = globe ? r.globeRenderState : null;
   r.setView({
     x: args.rotation?.x,
     y: args.rotation?.y,
@@ -92,6 +107,8 @@ export function capture3d(
 
 /** Closes the 3D view and puts the person's own 3D settings back. */
 export async function close3d(): Promise<void> {
+  globeRaycast = null;
+  globeState = null;
   Controllers.View3d.enterStandard();
   if (saved) {
     const previous = saved;
@@ -109,7 +126,17 @@ export function globeInfo(): Record<string, unknown> {
   const c = options.map.geography.coordinates;
   const layout = globeLayout(c, options.app.threeD.resolutionScale);
   const mapDegrees = c.lonT;
+  // Renderer raycasts ONLY the solid sphere, not its decorative atmosphere
+  // or cloud shells. UVs map back through the same partial-globe layout used
+  // for albedo/bump/roughness; the closing ocean has no map cell.
+  const uv = globeRaycast?.();
+  const x = uv ? ((uv.u * layout.width - layout.dx) / layout.mapWidth) * options.map.graph.width : -1;
+  const y = uv ? (((1 - uv.v) * layout.height - layout.dy) / layout.mapHeight) * options.map.graph.height : -1;
+  const centerCell =
+    x >= 0 && y >= 0 && x <= options.map.graph.width && y <= options.map.graph.height ? cellAt(x, y) : null;
   return {
+    centerCell,
+    render: globeState?.() ?? null,
     mapLongitudeDegrees: mapDegrees,
     closingOceanDegrees: Math.max(0, 360 - mapDegrees),
     texturePx: { width: layout.width, height: layout.height },
@@ -125,6 +152,7 @@ function current3d(): Record<string, unknown> {
     satellite: t.satellite,
     erosion: t.erosion,
     atmosphere: t.extendedWater,
+    clouds: t.clouds,
     sun: t.sun,
     scale: t.scale,
     textureResolution: t.resolutionScale,
@@ -169,27 +197,56 @@ async function waitUntilStable(): Promise<boolean> {
 
 // ---- clean capture mode -------------------------------------------------------------------------------------------
 
-const hiddenByClean = new Map<Element, string>(); // element -> its own inline display value, put back by setCleanMode(false)
+const hiddenByClean = new Map<SVGElement, { display: string; priority: string }>();
+let cleanObserver: MutationObserver | null = null;
+let cleanStyle: HTMLStyleElement | null = null;
+let cleanSelectors: string[] = [];
 
 /**
- * Forces the given elements off (game pictograms such as port anchors, routes, markers, ice) so a capture shows pure cartography,
- * whatever layer or reset turned them back on. `setCleanMode(false)` puts every element back exactly as it was.
+ * Forces pictograms off for exports and 3D captures, even when the v1.154.1 viewport
+ * replaces a group during a redraw. Inline styles are needed for a serialized SVG;
+ * a temporary stylesheet covers the interval before the mutation observer runs.
  */
 export function setCleanMode(on: boolean, selectors: string[] = []): { hidden: number } {
   if (!on) {
-    for (const [el, display] of hiddenByClean) {
-      (el as SVGElement).style.removeProperty("display");
-      if (display) (el as SVGElement).style.display = display;
+    cleanObserver?.disconnect();
+    cleanObserver = null;
+    cleanStyle?.remove();
+    cleanStyle = null;
+    cleanSelectors = [];
+    for (const [el, previous] of hiddenByClean) {
+      el.style.removeProperty("display");
+      if (previous.display) el.style.setProperty("display", previous.display, previous.priority);
     }
     hiddenByClean.clear();
     return { hidden: 0 };
   }
   if (!selectors.length) throw new AgentError("setCleanMode: the list of elements to hide is empty");
-  for (const selector of selectors)
-    for (const el of document.querySelectorAll<SVGElement>(selector)) {
-      if (!hiddenByClean.has(el)) hiddenByClean.set(el, el.style.display);
-      el.style.setProperty("display", "none", "important");
-    }
+  // Validate the entire new list before touching the current capture state.
+  for (const selector of selectors) document.querySelectorAll(selector);
+  cleanSelectors = [...new Set([...cleanSelectors, ...selectors])];
+  const apply = () => {
+    for (const selector of cleanSelectors)
+      for (const el of document.querySelectorAll<SVGElement>(selector)) {
+        if (!hiddenByClean.has(el))
+          hiddenByClean.set(el, {
+            display: el.style.getPropertyValue("display"),
+            priority: el.style.getPropertyPriority("display")
+          });
+        el.style.setProperty("display", "none", "important");
+      }
+  };
+  apply();
+  cleanStyle ??= document.createElement("style");
+  cleanStyle.textContent = cleanSelectors.map(selector => `${selector} { display: none !important; }`).join("\n");
+  if (!cleanStyle.isConnected) document.head.append(cleanStyle); // outside #map: never saved with the map
+  if (!cleanObserver) {
+    cleanObserver = new MutationObserver(apply);
+    cleanObserver.observe(document.getElementById("map") ?? document.documentElement, {
+      childList: true,
+      subtree: true
+    });
+  }
   return { hidden: hiddenByClean.size };
 }
 

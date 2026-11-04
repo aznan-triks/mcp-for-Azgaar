@@ -36,7 +36,7 @@ export async function startStaticServer(root: string, host: string, port: number
   try {
     await stat(join(base, "index.html"));
   } catch {
-    throw new Error(`No built Azgaar found in ${base} (index.html missing). Run: npm run setup`);
+    throw new Error(`No built Azgaar found in ${base} (index.html missing). Run: npm run build:azgaar`);
   }
   const server: Server = createServer(async (req, res) => {
     try {

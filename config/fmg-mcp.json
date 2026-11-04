@@ -1,5 +1,5 @@
 {
-  "azgaarDist": "upstream/azgaar/dist-electron/renderer",
+  "azgaarDist": "vendor/azgaar/dist-electron/renderer",
   "mapsDir": "maps",
   "presetsFile": "layer-presets.json",
   "layerPresets": {
@@ -34,6 +34,15 @@
       "rivers",
       "labels",
       "scaleBar"
+    ],
+    "topographic": [
+      "heightmap",
+      "rivers",
+      "relief",
+      "routes",
+      "burgIcons",
+      "labels",
+      "scaleBar"
     ]
   },
   "exportsDir": "exports",
@@ -47,7 +56,7 @@
   "browser": {
     "channel": "chrome",
     "executablePath": null,
-    "headless": false,
+    "headless": true,
     "viewport": {
       "width": 1920,
       "height": 1080
@@ -81,9 +90,10 @@
     "format": "png",
     "jpegQuality": 92,
     "maxPixels": 10000,
+    "maxSourcePixels": 8192,
     "clean": false,
     "cleanHide": [
-      "#anchors",
+      "#burgIcons [data-group=\"anchors\"]",
       "#routes",
       "#markers",
       "#ice"
@@ -96,11 +106,14 @@
     "zoomMax": 80,
     "cameraMsMax": 5000,
     "scaleTolerance": 0.01,
+    "imageBytesMin": 10000,
+    "imageBytesMax": 5000000,
     "mapSizeMin": 100,
     "mapSizeMax": 8000,
-    "exportTimeoutMs": 120000
+    "exportTimeoutMs": 60000,
+    "mapFileBytesMax": 200000000
   },
-  "azgaarPackage": "upstream/azgaar/package.json",
+  "azgaarPackage": "vendor/azgaar/package.json",
   "autosave": {
     "intervalSec": 60
   },

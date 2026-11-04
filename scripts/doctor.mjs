@@ -1,6 +1,6 @@
 // `npm run doctor`: checks everything the server needs and says what to fix. Opens a hidden browser to prove it works.
 //   --headed   show the browser window during the check
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -21,7 +21,8 @@ export function clientConfigFiles(home = homedir()) {
 }
 
 /**
- * Finds client entries that launch a start.mjs which is not this copy's. Returns one line per stale entry.
+ * Finds client entries that launch a start.mjs which is not this copy's (D-006: a client kept pointing at the
+ * other copy of the project, so fixes made here never showed up). Returns one line per stale entry.
  */
 export function staleClientEntries(files, startFile) {
   const mine = resolve(startFile).toLowerCase();
@@ -43,7 +44,7 @@ export function staleClientEntries(files, startFile) {
 }
 
 export async function doctor({ headed = false } = {}) {
-  console.log("azgaar doctor\n");
+  console.log("map-of-trois doctor\n");
   if (!isSupportedNode()) {
     fail(unsupportedNodeMessage(), "after installing a newer Node, run npm run doctor again");
     return finish();
@@ -65,7 +66,7 @@ export async function doctor({ headed = false } = {}) {
   }
 
   if (!existsSync(join(cfg.azgaarDist, "index.html"))) {
-    fail("Azgaar is not built", "run: npm run setup");
+    fail("Azgaar is not built", "run: npm run build:azgaar");
     return finish();
   }
   ok("Azgaar is built");
@@ -109,12 +110,11 @@ export async function doctor({ headed = false } = {}) {
   } finally {
     await session.close();
     await web.close();
-    rmSync(cfg.profileDir, { recursive: true, force: true }); // the self-test's own throw-away profile
   }
 
   const desktop = desktopConfigPath();
   try {
-    const registered = existsSync(desktop) && /azgaar/.test((await import("node:fs")).readFileSync(desktop, "utf8"));
+    const registered = existsSync(desktop) && /map-of-trois/.test((await import("node:fs")).readFileSync(desktop, "utf8"));
     if (registered) ok("registered in Claude Desktop");
     else warn("not registered in Claude Desktop (Claude Code is not checked): run npm run register");
   } catch {

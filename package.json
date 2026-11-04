@@ -1,6 +1,6 @@
 {
   "name": "mcp-for-azgaar",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "private": false,
   "type": "module",
   "description": "MCP server that lets an AI see and edit an Azgaar Fantasy Map Generator map, live, fully offline",
@@ -8,14 +8,17 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "setup": "node scripts/setup.mjs",
+    "build:azgaar": "node scripts/build-azgaar.mjs",
     "update": "node scripts/update.mjs",
+    "compat": "node scripts/compat.mjs",
     "start": "node scripts/start.mjs",
+    "setup": "node scripts/setup.mjs",
+    "check": "node scripts/check.mjs",
+    "test": "node scripts/check.mjs",
     "register": "node scripts/register.mjs",
     "doctor": "node scripts/doctor.mjs",
-    "compat": "node scripts/compat.mjs",
     "docs": "node scripts/gen-docs.mjs",
-    "check": "node scripts/check.mjs"
+    "docs:check": "node scripts/gen-docs.mjs --check"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",

@@ -87,12 +87,7 @@ const assignState: Command = {
       }
     }
     States.getPoles();
-    if (typeof (States as any)?.adjustProvinces === "function") {
-      (States as any).adjustProvinces([...new Set(affectedProvinces)]);
-    } else {
-      const { adjustProvinces } = await import("@/controllers/states-editor");
-      adjustProvinces([...new Set(affectedProvinces)]);
-    }
+    States.adjustProvinces([...new Set(affectedProvinces)]);
     Layers.draw("states", "borders", "provinces");
     for (const id of touched) if (pack.states[id]?.label) delete pack.states[id].label;
     Layers.draw("labels");

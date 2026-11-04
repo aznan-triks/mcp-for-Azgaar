@@ -1,5 +1,9 @@
+import { MapEntities } from "@/components/map-entities";
 import { viewport } from "@/components/viewport";
+import { Notes } from "@/generators/notes";
 import { getLabelsIndex } from "@/renderers/labels/label-data";
+import { StylePresetsService, SYSTEM_PRESETS } from "@/services/style-presets";
+import { REGIMENT_ID_FACTOR } from "./commands/military";
 import { config } from "./config";
 import { cellAt, mapSize, mapToScreen, round, screenToMap, visibleBounds } from "./geometry";
 import { parseSpatial, pointsOfEntry, referencePoints, SPATIAL_KINDS, testEntry } from "./spatial";
@@ -90,6 +94,7 @@ export function summary(): Record<string, unknown> {
   }));
   const landCells = pack.cells.i.filter(c => pack.cells.h[c] >= 20).length;
   const unclaimed = pack.cells.i.filter(c => pack.cells.h[c] >= 20 && !pack.cells.state[c]).length;
+  const { lore } = options.map;
   return {
     version: window.VERSION,
     seed: options.map.seed,
@@ -102,7 +107,17 @@ export function summary(): Record<string, unknown> {
       burgs: alive(pack.burgs).length,
       provinces: alive(pack.provinces).length,
       cultures: alive(pack.cultures).length,
+      zonesCount: pack.zones.length,
+      notesCount: Notes.list().length,
+      regimentsCount: alive(pack.states).reduce((total, state) => total + (state.military?.length ?? 0), 0),
       religions: alive(pack.religions).length
+    },
+    lore: {
+      name: lore.name,
+      year: lore.calendar.year,
+      era: lore.calendar.era,
+      eraShort: lore.calendar.eraShort,
+      description: lore.description
     },
     states,
     camera: camera()
@@ -110,6 +125,10 @@ export function summary(): Record<string, unknown> {
 }
 
 export const LIST_KINDS = [
+  "zones",
+  "notes",
+  "diplomacy",
+  "military",
   "states",
   "provinces",
   "cultures",
@@ -119,7 +138,8 @@ export const LIST_KINDS = [
   "routes",
   "labels",
   "markerTypes",
-  "rivers"
+  "rivers",
+  "styles"
 ] as const;
 
 export function list(
@@ -133,6 +153,33 @@ export function list(
   const alive = <T extends { i: number; removed?: boolean }>(items: T[]): T[] => items.filter(e => e.i && !e.removed);
   let rows: Record<string, unknown>[];
   switch (kind) {
+    case "diplomacy":
+      rows = alive(pack.states)
+        .filter(s => filterState === undefined || s.i === filterState)
+        .map(s => ({ id: s.i, name: s.name, relations: [...(s.diplomacy ?? [])] }));
+      break;
+    case "military":
+      rows = alive(pack.states)
+        .filter(s => filterState === undefined || s.i === filterState)
+        .flatMap(s =>
+          (s.military ?? []).map(r => ({
+            id: s.i * REGIMENT_ID_FACTOR + r.i,
+            regimentId: r.i,
+            stateId: s.i,
+            state: s.i,
+            name: r.name,
+            x: r.x,
+            y: r.y,
+            cell: r.cell,
+            naval: Boolean(r.n),
+            units: { ...r.u },
+            total: r.a,
+            icon: r.icon,
+            bx: r.bx,
+            by: r.by
+          }))
+        );
+      break;
     case "states":
       rows = alive(pack.states).map(s => ({ id: s.i, name: s.fullName ?? s.name, color: s.color }));
       break;
@@ -147,7 +194,9 @@ export function list(
     case "religions":
       rows = alive(pack.religions).map(r => ({ id: r.i, name: r.name, color: r.color }));
       break;
-    case "burgs":
+    case "burgs": {
+      // population is in real inhabitants, the same unit updateBurg/editBurg take; populationRaw is the stored value
+      const { scale, urbanization } = options.map.units.population;
       rows = alive(pack.burgs)
         .filter(b => filterState === undefined || b.state === filterState)
         .map(b => ({
@@ -158,9 +207,19 @@ export function list(
           x: round(b.x),
           y: round(b.y),
           capital: Boolean(b.capital),
-          population: b.population
+          population: round((b.population ?? 0) * scale * urbanization.rate, 0),
+          populationRaw: b.population,
+          citadel: Boolean(b.citadel),
+          walls: Boolean(b.walls),
+          plaza: Boolean(b.plaza),
+          temple: Boolean(b.temple),
+          shanty: Boolean(b.shanty),
+          port: Boolean(b.port),
+          type: b.type ?? null,
+          group: b.group ?? null
         }));
       break;
+    }
     case "markers":
       rows = pack.markers.map(m => ({
         id: m.i,
@@ -202,6 +261,34 @@ export function list(
         cells: r.cells?.length ?? 0
       }));
       break;
+    case "styles":
+      // one row per style element: its whole configuration tree (attrs, options, groups), as setStyle addresses it
+      rows = Object.entries(styles).map(([element, config]) => ({ id: element, name: element, config }));
+      break;
+    case "zones":
+      // zones are hard-deleted by removal: no removed flag, and the first zone's id is 0, so no alive() filter here
+      rows = pack.zones
+        .filter(z => filterState === undefined || z.cells.some(cell => pack.cells.state[cell] === filterState))
+        .map(z => ({
+          id: z.i,
+          name: z.name,
+          type: z.type,
+          color: z.color,
+          cells: z.cells.length,
+          hidden: Boolean(z.hidden)
+        }));
+      break;
+    case "notes":
+      rows = Notes.list().map(({ ref, key, note }) => ({
+        id: key, // this key is the id every note command accepts ("regiment:stateId-regimentId" for regiments)
+        type: ref.type,
+        entityId: ref.id,
+        ...(ref.sub === undefined ? {} : { sub: ref.sub }),
+        name: MapEntities.getName(ref),
+        characters: note.length,
+        note
+      }));
+      break;
     default:
       throw new AgentError(`list: unknown kind "${kind}". Available: ${LIST_KINDS.join(", ")}`);
   }
@@ -214,7 +301,20 @@ export function list(
     );
   }
   if (spatial === undefined)
-    return { kind, total: rows.length, shown: Math.min(rows.length, max), rows: rows.slice(0, max) };
+    return {
+      ...(kind === "diplomacy" ? { chronicle: States.getChronicle() ?? [] } : {}),
+      ...(kind === "styles"
+        ? {
+            preset: StylePresetsService.current(),
+            systemPresets: [...SYSTEM_PRESETS],
+            customPresets: StylePresetsService.listCustom()
+          }
+        : {}),
+      kind,
+      total: rows.length,
+      shown: Math.min(rows.length, max),
+      rows: rows.slice(0, max)
+    };
 
   if (!(SPATIAL_KINDS as readonly string[]).includes(kind))
     throw new AgentError(

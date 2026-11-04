@@ -136,6 +136,7 @@ Les pages détaillées existent en français dans [docs/fr/](docs/fr/README.md) 
 - [Exemples d'utilisation](docs/fr/USAGE-EXAMPLES.md) : plus de 16 recettes avec les phrases exactes à dire à l'IA.
 - [Dépannage](docs/fr/TROUBLESHOOTING.md), [FAQ](docs/fr/FAQ.md), [Configuration](docs/fr/CONFIGURATION.md), [Sécurité](docs/fr/SECURITY.md), [Désinstallation](docs/fr/UNINSTALL.md).
 - Références techniques (en anglais, générées depuis le code) : [outils](docs/TOOLS.md) et [commandes](docs/COMMANDS.md).
+- Pour les développeurs (en anglais) : [architecture](docs/ARCHITECTURE.md) et [décisions de conception](docs/DESIGN.md). Contrôles : `npm run check` (`npm run test` fait la même chose).
 
 ## Pour les développeurs
 

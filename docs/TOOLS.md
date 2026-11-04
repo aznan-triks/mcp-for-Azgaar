@@ -28,10 +28,11 @@ Every tool the MCP server offers, with its parameters. Your AI program shows the
 
 ## map_view
 
-Screenshot of what the browser window currently shows, plus a legend (state ids/names/colours) and the camera. Options draw temporary annotations for this screenshot only: grid = coordinate graticule labelled in map units; state_ids = id badge on each state; cell_ids = cell ids (only when few cells are visible: zoom in first). whole_map=true first frames the whole map (otherwise the shot shows exactly what the window shows now, zoom included). A pending selection is always visible as a red overlay. `region` {x0,y0,x1,y1} in map units first zooms the window onto that rectangle (it stays there: call map_camera with scale 1 to see the whole map again; its reply states the scale really applied, which may be higher if the window cannot show the whole map at 1).
+Screenshot of what the browser window currently shows, plus a legend (state ids/names/colours) and the camera. Options draw temporary annotations for this screenshot only: grid = coordinate graticule labelled in map units; state_ids = id badge on each state; cell_ids = cell ids (only when few cells are visible: zoom in first). whole_map=true first frames the whole map (otherwise the shot shows exactly what the window shows now, zoom included). A pending selection is always visible as a red overlay. Optional supersample 1..4 and filter lanczos3/stepdown/fast improve the reduced preview while keeping the same viewport dimensions; source images are capped by export.maxSourcePixels. `region` {x0,y0,x1,y1} in map units first zooms the window onto that rectangle (it stays there: call map_camera with scale 1 to see the whole map again; its reply states the scale really applied, which may be higher if the window cannot show the whole map at 1).
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
+| `inset` | object {x0, y0, x1, y1, title, corner, cover} | no | Non-destructive regional atlas: whole map plus a framed, titled loupe; no camera change. Cannot combine with camera framing, overlays, text_map or filters. |
 | `grid` | boolean | no |  |
 | `state_ids` | boolean | no |  |
 | `cell_ids` | boolean | no |  |
@@ -41,7 +42,9 @@ Screenshot of what the browser window currently shows, plus a legend (state ids/
 | `cols` | integer (min -9007199254740991, max 9007199254740991) | no | Width of the character map |
 | `rows` | integer (min -9007199254740991, max 9007199254740991) | no | Height of the character map |
 | `format` | one of: `png`, `jpeg` | no |  |
-| `max_image_bytes` | integer (min 10000, max 50000000) | no |  |
+| `supersample` | integer (min 1, max 4) | no |  |
+| `filter` | one of: `lanczos3`, `stepdown`, `fast` | no |  |
+| `max_image_bytes` | integer (min 10000, max 5000000) | no |  |
 
 ## map_status
 
@@ -69,7 +72,7 @@ Full facts about one cell: state, province, culture, religion, biome, height, bu
 
 ## map_list
 
-List entities: states, provinces, cultures, religions, burgs (cities), markers, markerTypes (the types addMarker accepts), routes, rivers, labels (what stands where on the map, with the shift moveLabel applied). `name` keeps only entries whose name contains that text (case-insensitive): the way to find a city or state by name. Provinces and burgs can be filtered by state. Spatial filters: `rect` {x0, y0, x1, y1} restricts to a box; `near` {burg: id} or {river: id} or {x, y} sorts by distance; `within` limits distance; `direction` (N, NE, E, SE, S, SW, W, NW) keeps only entities on that compass side. Long lists are cut at `limit` (default 50); `total` is the real count.
+List entities: states, provinces, cultures, religions, burgs (cities, with their architecture and population in inhabitants), markers, markerTypes (the types addMarker accepts), routes, rivers, styles (the current visual preset and every style value setStyle can change), zones (zone id, type, fill, cell count), notes (entity key, type and sanitized HTML), military (composite id, regimentId, stateId, units), diplomacy (relations by state and chronicle), labels (what stands where on the map, with the shift moveLabel applied). `name` keeps only entries whose name contains that text (case-insensitive): the way to find a city or state by name. Provinces, burgs, zones, military and diplomacy can be filtered by state. Spatial filters: `rect` {x0, y0, x1, y1} restricts to a box; `near` {burg: id} or {river: id} or {x, y} sorts by distance; `within` limits distance; `direction` (N, NE, E, SE, S, SW, W, NW) keeps only entities on that compass side. Long lists are cut at `limit` (default 50); `total` is the real count.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
@@ -184,20 +187,26 @@ Escape hatch: evaluates a JavaScript expression/function body in the map page an
 
 ## map_export
 
-Exports exactly what Azgaar's Export menu exports, into the exports folder (the path is returned). Pictures: svg, png, jpeg (what is on screen NOW: choose the layers first, here or with map_layers), tiles (zip of png tiles). map = the .map save file. Data: json-* (full, minimal, pack/grid cells), geojson-* (cells, routes, rivers, markers, zones), csv-* (burgs, biomes, relations, goods, markers, markets, military, regiments, notes, zones). Options: only_layers = show exactly these layers and hide the others (e.g. ["heightmap","cultures"]); layer_preset = one of Azgaar's layer presets (political, cultural, religions, provinces, biomes, heightmap, physical...); resolution = picture scale factor; clean = true forces port anchors, routes, markers and ice off (default from export.clean); name = file name. The whole map is framed for pictures. A png/jpeg is also returned as an image unless the model cannot see images.
+Exports the map to exportsDir. Pictures: png/jpeg (exact width, height or resolution; an inline preview is returned), svg or tiles (ZIP). Opt-in bitmap supersample 1..4 captures vectors at higher resolution (source capped by export.maxSourcePixels), then filters down via lanczos3, stepdown or fast; the default screenshot path is unchanged. Data: map, json-* (full, minimal, cells), geojson-* (cells, routes, rivers, markers, zones), csv-* (burgs, biomes, relations, goods, markers, markets, military, regiments, notes, zones). only_layers selects exactly the visible layers; layer_preset uses a saved/config or native Azgaar preset; clean hides port anchors, routes, markers and ice. For pictures the whole map is framed and the camera and layers are restored afterwards.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
-| `format` | one of: `svg`, `png`, `jpeg`, `tiles`, `map`, `json-full`, `json-minimal`, `json-pack-cells`, `json-grid-cells`, `geojson-cells`, `geojson-routes`, `geojson-rivers`, `geojson-markers`, `geojson-zones`, `csv-burgs`, `csv-biomes`, `csv-relations`, `csv-goods`, `csv-markers`, `csv-markets`, `csv-military`, `csv-regiments`, `csv-notes`, `csv-zones` | yes |  |
+| `inset` | object {x0, y0, x1, y1, title, corner, cover} | no | Non-destructive atlas: global map, locator rectangle and framed regional loupe. PNG/JPEG only, without supersample/filter. |
+| `format` | one of: `svg`, `png`, `jpeg`, `tiles`, `map`, `json-full`, `json-minimal`, `json-pack-cells`, `json-grid-cells`, `geojson-cells`, `geojson-routes`, `geojson-rivers`, `geojson-markers`, `geojson-zones`, `csv-burgs`, `csv-biomes`, `csv-relations`, `csv-goods`, `csv-markers`, `csv-markets`, `csv-military`, `csv-regiments`, `csv-notes`, `csv-zones` | no |  |
 | `name` | string | no |  |
+| `width` | integer (min 1, max 9007199254740991) | no |  |
+| `height` | integer (min 1, max 9007199254740991) | no |  |
 | `only_layers` | list of string | no |  |
 | `layer_preset` | string | no |  |
 | `resolution` | number | no |  |
+| `supersample` | integer (min 1, max 4) | no |  |
+| `filter` | one of: `lanczos3`, `stepdown`, `fast` | no |  |
 | `clean` | boolean | no |  |
+| `max_image_bytes` | integer (min 10000, max 5000000) | no |  |
 
 ## map_3d
 
-Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief only), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet; diptych saves a single composite plate showing both hemispheres side-by-side with planetary cartouche. sun_position {x, y, z}; atmosphere = sky and horizon fog (relief); erosion (relief); height_scale (relief); distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.
+Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief or globe), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet; diptych saves a single composite plate showing both hemispheres side-by-side with planetary cartouche. sun_position {x, y, z} or {azimuth, altitude} in degrees; atmosphere = sky/fog (relief), Fresnel halo (globe, on by default); clouds = procedural cloud shell (globe only); erosion = terrain mesh (relief) or baked globe bump detail; height_scale = terrain exaggeration (relief) or satellite shading scale (globe); diptych: true aliases hemispheres: diptych; distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|
@@ -205,8 +214,10 @@ Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and
 | `preset` | one of: `satellite`, `heightmap`, `biomes` | no |  |
 | `rotation` | object {x, y} | no |  |
 | `hemispheres` | one of: `single`, `both`, `diptych` | no |  |
-| `sun_position` | object {x, y, z} | no |  |
+| `diptych` | boolean | no |  |
+| `sun_position` | object {x, y, z} or object {azimuth, altitude} | no |  |
 | `atmosphere` | boolean | no |  |
+| `clouds` | boolean | no |  |
 | `erosion` | boolean | no |  |
 | `height_scale` | number (min 1) | no |  |
 | `distance` | number | no |  |
@@ -215,7 +226,7 @@ Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and
 | `clean` | boolean | no |  |
 | `output` | one of: `png`, `jpeg`, `webp` | no |  |
 | `name` | string | no |  |
-| `max_image_bytes` | integer (min 10000, max 50000000) | no |  |
+| `max_image_bytes` | integer (min 10000, max 5000000) | no |  |
 
 ## map_menu
 
@@ -229,7 +240,7 @@ Azgaar's own list of actions, the same ones its search bar offers: open any edit
 
 ## map_ui
 
-Operate Azgaar's own screen like a person: the open dialogs (editors opened with map_menu), the side menu and any button or field, so that nothing the interface offers is out of reach. list: open dialogs with their text, and their controls (scope dialogs | menu | page; query filters). find: same with a query. get: one control's value. hidden:true also lists controls of closed panels (like the Options side menu: by id they can still be read and set). click / set: act on a control given by ref (from list/find), id, selector or text (the visible label); set takes value for fields, checkboxes and drop-downs. upload: give path plus either a file input (id/selector) or the button that opens the file picker (text/ref/id), e.g. a heightmap picture. close_dialogs. After a click or set the open dialogs are returned; clicks and sets are undoable (the previous state is saved, and dropped if nothing changed). Set view:true to also get the picture.
+Operate Azgaar's own screen like a person: the open dialogs (editors opened with map_menu), the side menu and any button or field, so that nothing the interface offers is out of reach. list: open dialogs with their text, and their controls (scope dialogs | menu | page; query filters). find: same with a query. get: one control's value. hidden:true also lists controls of closed panels (like the Options side menu: by id they can still be read and set). click / set: act on a control given by ref (from list/find), id, selector or text (the visible label); set takes value for fields, checkboxes and drop-downs. When a text fits several controls equally well, the one acted on is reported with the others in alsoMatched and a warning: name the one you mean by ref, id or selector. upload: give path plus either a file input (id/selector) or the button that opens the file picker (text/ref/id), e.g. a heightmap picture. close_dialogs. After a click or set the open dialogs are returned; clicks and sets are undoable (the previous state is saved, and dropped if nothing changed). Set view:true to also get the picture.
 
 | Parameter | Type | Required | Meaning |
 |---|---|---|---|

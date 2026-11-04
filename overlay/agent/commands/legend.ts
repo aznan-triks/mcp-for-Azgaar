@@ -1,6 +1,7 @@
 import { color, interpolateSpectral, range, scaleSequential } from "d3";
 import { viewport } from "@/components/viewport";
 import { clearLegend, drawLegend, fitLegendBox, type LegendItem, redrawLegend } from "@/renderers/draw-legend";
+import { HeightmapColorSchemes } from "@/renderers/heightmap-color-schemes";
 import { legendPositions } from "@/renderers/legend-positions";
 import { convertTemperature, getHeight, getPrecipitation, si } from "@/utils";
 import { config } from "../config";
@@ -108,7 +109,7 @@ const builders: Record<Exclude<LegendLayer, "custom">, Builder> = {
     items: pack.zones.filter(z => !z.hidden).map(z => [`zone${z.i}`, hex(z.color), clean(z.name)])
   }),
   heightmap: () => {
-    const { landHeights, oceanHeights } = styles.heightmap;
+    const { landHeights, oceanHeights } = styles.heightmap.groups;
     const landStart = config.legendHeightSteps[0] ?? 0;
     // a band runs from its step to the next one (the last land band is open-ended, the sea ends where the land starts)
     const bands = (steps: number[], scheme: string, end?: number): LegendItem[] =>
@@ -120,7 +121,7 @@ const builders: Record<Exclude<LegendLayer, "custom">, Builder> = {
             : h === 0
               ? `below ${getHeight(next)}`
               : `${getHeight(h)} to ${getHeight(next)}`;
-        return [`h${h}`, hex(getColor(h, getColorScheme(scheme))), clean(label)];
+        return [`h${h}`, hex(HeightmapColorSchemes.getColor(h, HeightmapColorSchemes.get(scheme))), clean(label)];
       });
     const land = bands(config.legendHeightSteps, landHeights.options.scheme);
     const sea = bands(config.legendSeaSteps, oceanHeights.options.scheme, landStart);
@@ -300,7 +301,7 @@ const legend: Command = {
     // maps saved by older Azgaar keep a leftover shift on the layer itself, which sends boxes off the canvas
     document.getElementById("legend")?.removeAttribute("transform");
     if (p.columns !== undefined) styles.legend.options.columns = p.columns as number;
-    if (p.opacity !== undefined) styles.legend.box.attrs["fill-opacity"] = p.opacity as number;
+    if (p.opacity !== undefined) styles.legend.groups.box.attrs["fill-opacity"] = p.opacity as number;
     redrawLegend(); // adopts a legacy single box and applies the style to the boxes already shown
 
     const built = layer === "custom" ? { items: parseItems(String(p.items ?? "")) } : builders[layer](p);

@@ -8,6 +8,26 @@ These are the arguments of `map_apply` (edit commands) and `map_select` (selecti
 
 | Command | What it does |
 |---|---|
+| [`setNote`](#setnote) | Write or replace the rich-text note of an entity (state, province, burg, marker, river, route, zone, culture, ... |
+| [`appendNote`](#appendnote) | Append HTML to an entity's existing note (same safety rules as setNote). |
+| [`removeNote`](#removenote) | Delete an entity's note entirely (the entity itself is untouched). |
+| [`setMapLore`](#setmaplore) | Set the world's lore: its name (downloaded files take it), the current year and era of its calendar (history a... |
+| [`addZone`](#addzone) | Create a zone (a named area with its own label, colour or hatch, and population) over cells, exactly like pain... |
+| [`updateZone`](#updatezone) | Change a zone: name, type, colour or hatch fill, and/or visibility. At least one field must be given. |
+| [`setZoneCells`](#setzonecells) | Replace the cells a zone covers: `cells` (cell ids) or `selection` (a map_select id), exactly one of them. All... |
+| [`removeZone`](#removezone) | Delete a zone (its cells and population elsewhere on the map are untouched). |
+| [`regenerateZones`](#regeneratezones) | Regenerate the event zones (invasion, rebels, proselytism, crusade, disease, disaster, eruption, avalanche, fa... |
+| [`setDiplomacy`](#setdiplomacy) | Set a bilateral relation, its inverse (Vassal/Suzerain), and record the change in the chronicle. |
+| [`resetDiplomacy`](#resetdiplomacy) | Regenerate all diplomatic relations and their chronicle using Azgaar's generator. |
+| [`addChronicleEvent`](#addchronicleevent) | Append an escaped chronicle event. Newlines in text separate its paragraphs. |
+| [`clearChronicle`](#clearchronicle) | Clear the historical chronicle without changing bilateral relations. |
+| [`addRegiment`](#addregiment) | Raise a regiment or fleet. Creation takes stateId and map coordinates, returns both id forms. |
+| [`updateRegiment`](#updateregiment) | Update a regiment's name, composition, naval flag or icon. |
+| [`moveRegiment`](#moveregiment) | Move a regiment without changing its base. |
+| [`splitRegiment`](#splitregiment) | Split troops in half into a new regiment of the same state. |
+| [`attachRegiment`](#attachregiment) | Merge source troops into a target regiment, disbanding the source. |
+| [`removeRegiment`](#removeregiment) | Disband a regiment or fleet. |
+| [`regenerateMilitary`](#regeneratemilitary) | Regenerate all military forces using Azgaar's generator. |
 | [`assignState`](#assignstate) | Give the selected land cells to a state (0 = unclaimed). Cities in these cells change owner. State capital cel... |
 | [`assignProvince`](#assignprovince) | Give selected land cells to a province. The province must belong to the same state as each cell. Province cent... |
 | [`assignCulture`](#assignculture) | Give the selected land cells to a culture (cities in these cells take it too). |
@@ -28,19 +48,252 @@ These are the arguments of `map_apply` (edit commands) and `map_select` (selecti
 | [`moveBurg`](#moveburg) | Move a city to another land cell. A capital cannot leave its state. |
 | [`removeBurg`](#removeburg) | Delete a city. Capitals and market centres cannot be deleted. |
 | [`editBurg`](#editburg) | Change a city's population (number of people) and/or its features: citadel, walls, plaza (market square), temp... |
+| [`updateBurg`](#updateburg) | Change a city's architecture and demography: population (number of people, as map_list kind=burgs shows it) an... |
 | [`addMarker`](#addmarker) | Place a marker (point of interest) at a map point. `type` may be one of the interface's marker types (call map... |
 | [`removeMarker`](#removemarker) | Delete a marker. |
 | [`addRoute`](#addroute) | Draw a route through map points: roads and trails over land, searoutes over water. The line follows the points... |
+| [`updateRoute`](#updateroute) | Change a route's name, group (roads, trails or searoutes) and/or lock (a locked route survives map regeneratio... |
+| [`splitRoute`](#splitroute) | Cut a route at one of its inner points: the route ends there and a new route of the same group goes on from th... |
+| [`joinRoutes`](#joinroutes) | Join two routes of the same group that meet at an endpoint into one continuous route; `other` is removed. The ... |
 | [`removeRoute`](#removeroute) | Delete a route. |
 | [`addRiver`](#addriver) | Draw a river from its source to its mouth through map points (all on land; the points are joined along adjacen... |
+| [`updateRiver`](#updateriver) | Change a river's name, type (a free label such as River, Creek or Fork), mainstem and/or width (source width a... |
 | [`removeRiver`](#removeriver) | Delete a river and all its tributaries. |
 | [`moveLabel`](#movelabel) | Shift the label of a state, province, city (burg), river, route or added label by an offset: dx, dy in map uni... |
 | [`regenerateEmblem`](#regenerateemblem) | Give a state, province or city (burg) a freshly generated coat of arms: new heraldry derived from its parent's... |
 | [`setEmblemStyle`](#setemblemstyle) | Change the look of an existing coat of arms without redrawing its heraldry: the shield shape (heater, round, b... |
 | [`legend`](#legend) | Show or hide a legend box on the map (it is saved with the map). layer: states, provinces (optionally one `sta... |
 | [`annotate`](#annotate) | Persistent annotations drawn over the map and saved with it (they come back after map_file load and appear in ... |
+| [`createSubmap`](#createsubmap) | Destructively resample a region into a new map, undoable through map_undo. MCP saves maps/pre-submap.map befor... |
 | [`rename`](#rename) | Rename a state, province, burg, culture, religion or river. For states and provinces `full_name` is the long f... |
 | [`setStateColor`](#setstatecolor) | Change the colour of a state (hex like #aa3355). |
+| [`applyStylePreset`](#applystylepreset) | Replace the whole visual style with a preset: one of Azgaar's built-in themes (offline files) or a custom pres... |
+| [`setStyle`](#setstyle) | Set one value of the map's style by its path, such as "ocean.groups.base.attrs.fill" or "relief.options.densit... |
+| [`setTopography`](#settopography) | Configure native heightmap contour lines, slope hachures, hypsometric fills and terraces; show the heightmap l... |
+
+### setNote
+
+Write or replace the rich-text note of an entity (state, province, burg, marker, river, route, zone, culture, religion, biome, good, regiment…). Unsafe markup is stripped before storing, never executed. Read notes with map_list kind=notes.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | string | no | Note key from map_list kind=notes, e.g. "state:3" (regiment: "regiment:3-2") |
+| `entity_type` | one of: `state`, `province`, `burg`, `marker`, `river`, `route`, `feature`, `zone`, `journey`, `market`, `regiment`, `addedLabel`, `culture`, `religion`, `biome`, `good` | no | Entity type: state, province, burg, marker, river, route, feature, zone, journey, market, regiment, addedLabel, culture, religion, biome, good |
+| `entity_id` | integer (min 0) | no | Entity id inside its type |
+| `entity_sub` | integer (min 0) | no | Only for regiments: the regiment's own id inside its state |
+| `html` | string | yes | Note HTML from the notes-editor subset; scripts, iframes, event handlers and javascript: URLs are stripped |
+
+### appendNote
+
+Append HTML to an entity's existing note (same safety rules as setNote).
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | string | no | Note key from map_list kind=notes, e.g. "state:3" (regiment: "regiment:3-2") |
+| `entity_type` | one of: `state`, `province`, `burg`, `marker`, `river`, `route`, `feature`, `zone`, `journey`, `market`, `regiment`, `addedLabel`, `culture`, `religion`, `biome`, `good` | no | Entity type: state, province, burg, marker, river, route, feature, zone, journey, market, regiment, addedLabel, culture, religion, biome, good |
+| `entity_id` | integer (min 0) | no | Entity id inside its type |
+| `entity_sub` | integer (min 0) | no | Only for regiments: the regiment's own id inside its state |
+| `html` | string | yes | Note HTML from the notes-editor subset; scripts, iframes, event handlers and javascript: URLs are stripped |
+
+### removeNote
+
+Delete an entity's note entirely (the entity itself is untouched).
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | string | no | Note key from map_list kind=notes, e.g. "state:3" (regiment: "regiment:3-2") |
+| `entity_type` | one of: `state`, `province`, `burg`, `marker`, `river`, `route`, `feature`, `zone`, `journey`, `market`, `regiment`, `addedLabel`, `culture`, `religion`, `biome`, `good` | no | Entity type: state, province, burg, marker, river, route, feature, zone, journey, market, regiment, addedLabel, culture, religion, biome, good |
+| `entity_id` | integer (min 0) | no | Entity id inside its type |
+| `entity_sub` | integer (min 0) | no | Only for regiments: the regiment's own id inside its state |
+
+### setMapLore
+
+Set the world's lore: its name (downloaded files take it), the current year and era of its calendar (history and battle reports are dated by them) and the author's free description. At least one field must be given; read them with map_summary lore.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `name` | string | no | Map name |
+| `year` | integer | no | Current year, may be negative |
+| `era` | string | no | Era name, such as "Winter Era" |
+| `era_short` | string | no | Era short form, such as "WE" (abbreviated from the era if omitted) |
+| `description` | string | no | Author's description of the world; pass an empty string to clear it |
+
+### addZone
+
+Create a zone (a named area with its own label, colour or hatch, and population) over cells, exactly like painting one in the zones editor. Cover: `cells` (cell ids, e.g. gathered from map_list) or `selection` (a map_select id — the natural companion: map_select circle/rect/state, then addZone). Zones appear with layer zones (map_layers).
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `name` | string | yes | Zone name, also its description |
+| `type` | string | yes | Free label such as Invasion, Disease, Quarantine, Hunting grounds |
+| `cells` | integers | no | Cell ids to cover (give `cells` OR `selection`, not both) |
+| `selection` | string | no | Selection id from map_select to cover |
+| `color` | string | no | CSS colour (hex or a colour name, normalized like the editor) or hatch fill url(#hatch0) to url(#hatch41); default: next hatch like the editor |
+| `hidden` | boolean | no | Start hidden (labels and shapes exist but are not drawn) |
+
+### updateZone
+
+Change a zone: name, type, colour or hatch fill, and/or visibility. At least one field must be given.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `zone` | integer (min 0) | yes | Zone id (map_list kind=zones) |
+| `name` | string | no | New name (also the zone's description) |
+| `type` | string | no | New free type label |
+| `color` | string | no | CSS colour (hex or a colour name, normalized like the editor) or hatch fill url(#hatch0) to url(#hatch41) |
+| `hidden` | boolean | no | true hides, false shows again |
+
+### setZoneCells
+
+Replace the cells a zone covers: `cells` (cell ids) or `selection` (a map_select id), exactly one of them. All ids are checked before anything changes.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `zone` | integer (min 0) | yes | Zone id (map_list kind=zones) |
+| `cells` | integers | no | New cell ids (give `cells` OR `selection`, not both) |
+| `selection` | string | no | Selection id from map_select |
+
+### removeZone
+
+Delete a zone (its cells and population elsewhere on the map are untouched).
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `zone` | integer (min 0) | yes | Zone id (map_list kind=zones) |
+
+### regenerateZones
+
+Regenerate the event zones (invasion, rebels, proselytism, crusade, disease, disaster, eruption, avalanche, fault, flood, tsunami) from the current states, cultures and religions, exactly like map generation does. All existing zones are replaced.
+
+_No parameters._
+
+### setDiplomacy
+
+Set a bilateral relation, its inverse (Vassal/Suzerain), and record the change in the chronicle.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `stateId` | integer (min 1) | yes | Subject state |
+| `targetStateId` | integer (min 1) | yes | Other state |
+| `status` | one of: `Ally`, `Friendly`, `Neutral`, `Suspicion`, `Enemy`, `Unknown`, `Rival`, `Vassal`, `Suzerain` | yes | Relation from subject to target |
+| `state` | integer (min 1) | no | Legacy alias for stateId; do not supply both names |
+| `to` | integer (min 1) | no | Legacy alias for targetStateId; do not supply both names |
+| `relation` | one of: `Ally`, `Friendly`, `Neutral`, `Suspicion`, `Enemy`, `Unknown`, `Rival`, `Vassal`, `Suzerain` | no | Legacy alias for status; do not supply both names |
+
+### resetDiplomacy
+
+Regenerate all diplomatic relations and their chronicle using Azgaar's generator.
+
+_No parameters._
+
+### addChronicleEvent
+
+Append an escaped chronicle event. Newlines in text separate its paragraphs.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `title` | string | yes | Event title |
+| `text` | string | yes | Event paragraphs, separated by newlines |
+
+### clearChronicle
+
+Clear the historical chronicle without changing bilateral relations.
+
+_No parameters._
+
+### addRegiment
+
+Raise a regiment or fleet. Creation takes stateId and map coordinates, returns both id forms.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `stateId` | integer (min 1) | yes | Owner state |
+| `x` | number | yes | Map x coordinate |
+| `y` | number | yes | Map y coordinate |
+| `name` | string | no | Regiment name |
+| `units` | units | no | Troop composition, e.g. {infantry: 800, archers: 200} |
+| `naval` | boolean | no | True for a fleet |
+| `icon` | string | no | Emoji or native icon id |
+| `state` | integer (min 1) | no | Legacy alias for stateId; do not supply both names |
+
+### updateRegiment
+
+Update a regiment's name, composition, naval flag or icon.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | integer (min 10000) | no | Composite military id (stateId times protocol factor plus regimentId) |
+| `stateId` | integer (min 1) | no | State id, together with regimentId instead of id |
+| `regimentId` | integer (min 0, max 9999) | no | Local regiment id (zero is valid) |
+| `name` | string | no | Regiment name |
+| `units` | units | no | Troop composition, e.g. {infantry: 800, archers: 200} |
+| `naval` | boolean | no | True for a fleet |
+| `icon` | string | no | Emoji or native icon id |
+| `state` | integer (min 1) | no | Legacy alias for stateId; do not supply both names |
+| `regiment` | integer (min 0, max 9999) | no | Legacy alias for regimentId; do not supply both names |
+
+### moveRegiment
+
+Move a regiment without changing its base.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | integer (min 10000) | no | Composite military id (stateId times protocol factor plus regimentId) |
+| `stateId` | integer (min 1) | no | State id, together with regimentId instead of id |
+| `regimentId` | integer (min 0, max 9999) | no | Local regiment id (zero is valid) |
+| `x` | number | yes | Map x coordinate |
+| `y` | number | yes | Map y coordinate |
+| `rebase` | boolean | no | Also move the base (default false) |
+| `state` | integer (min 1) | no | Legacy alias for stateId; do not supply both names |
+| `regiment` | integer (min 0, max 9999) | no | Legacy alias for regimentId; do not supply both names |
+
+### splitRegiment
+
+Split troops in half into a new regiment of the same state.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | integer (min 10000) | no | Composite military id (stateId times protocol factor plus regimentId) |
+| `stateId` | integer (min 1) | no | State id, together with regimentId instead of id |
+| `regimentId` | integer (min 0, max 9999) | no | Local regiment id (zero is valid) |
+| `state` | integer (min 1) | no | Legacy alias for stateId; do not supply both names |
+| `regiment` | integer (min 0, max 9999) | no | Legacy alias for regimentId; do not supply both names |
+
+### attachRegiment
+
+Merge source troops into a target regiment, disbanding the source.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | integer (min 10000) | no | Composite military id (stateId times protocol factor plus regimentId) |
+| `stateId` | integer (min 1) | no | State id, together with regimentId instead of id |
+| `regimentId` | integer (min 0, max 9999) | no | Local regiment id (zero is valid) |
+| `targetId` | integer (min 10000) | no | Composite target id, OR targetStateId + targetRegimentId |
+| `targetStateId` | integer (min 1) | no | Target state |
+| `targetRegimentId` | integer (min 0, max 9999) | no | Target local regiment id |
+| `state` | integer (min 1) | no | Legacy alias for stateId; do not supply both names |
+| `regiment` | integer (min 0, max 9999) | no | Legacy alias for regimentId; do not supply both names |
+| `to_id` | integer (min 10000) | no | Legacy alias for targetId; do not supply both names |
+| `to_state` | integer (min 1) | no | Legacy alias for targetStateId; do not supply both names |
+| `to_regiment` | integer (min 0, max 9999) | no | Legacy alias for targetRegimentId; do not supply both names |
+
+### removeRegiment
+
+Disband a regiment or fleet.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | integer (min 10000) | no | Composite military id (stateId times protocol factor plus regimentId) |
+| `stateId` | integer (min 1) | no | State id, together with regimentId instead of id |
+| `regimentId` | integer (min 0, max 9999) | no | Local regiment id (zero is valid) |
+| `state` | integer (min 1) | no | Legacy alias for stateId; do not supply both names |
+| `regiment` | integer (min 0, max 9999) | no | Legacy alias for regimentId; do not supply both names |
+
+### regenerateMilitary
+
+Regenerate all military forces using Azgaar's generator.
+
+_No parameters._
 
 ### assignState
 
@@ -115,6 +368,7 @@ Merge one or several states into another: their land, cities, provinces and regi
 | `states` | integers | yes | Ids of the states to merge away |
 | `into` | integer (min 1) | yes | Id of the state that absorbs them |
 | `as_provinces` | boolean | no | Keep each merged state as a province of `into` (replaces its own provinces) |
+| `asProvinces` | boolean | no | Legacy alias for as_provinces; do not supply both names |
 
 ### createProvince
 
@@ -254,6 +508,21 @@ Change a city's population (number of people) and/or its features: citadel, wall
 | `shanty` | boolean | no | Has a shanty town |
 | `port` | boolean | no | Is a port (needs a navigable water body) |
 
+### updateBurg
+
+Change a city's architecture and demography: population (number of people, as map_list kind=burgs shows it) and/or its features: citadel, walls, plaza (market square), temple, shanty town, port. A port needs navigable water nearby. A plaza that is the centre of a market cannot be removed. Same behavior as editBurg.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `burg` | integer (min 1) | yes | Burg id |
+| `population` | number (min 0) | no | Number of inhabitants, as the interface shows it |
+| `citadel` | boolean | no | Has a citadel |
+| `walls` | boolean | no | Has walls |
+| `plaza` | boolean | no | Has a market square |
+| `temple` | boolean | no | Has a temple |
+| `shanty` | boolean | no | Has a shanty town |
+| `port` | boolean | no | Is a port (needs a navigable water body) |
+
 ### addMarker
 
 Place a marker (point of interest) at a map point. `type` may be one of the interface's marker types (call map_list kind=markerTypes) such as ruins or volcanoes, or omitted for a custom marker with your own `icon` (an emoji). Turns the markers layer on.
@@ -285,6 +554,35 @@ Draw a route through map points: roads and trails over land, searoutes over wate
 | `group` | one of: `roads`, `trails`, `searoutes` | no | roads (default), trails or searoutes |
 | `name` | string | no | Route name (generated from the places it links if omitted) |
 
+### updateRoute
+
+Change a route's name, group (roads, trails or searoutes) and/or lock (a locked route survives map regeneration). Give at least one field.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `route` | integer (min 0) | yes | Route id (see map_list kind=routes) |
+| `name` | string | no | New name |
+| `group` | one of: `roads`, `trails`, `searoutes` | no | Move the route to another group |
+| `locked` | boolean | no | Lock (true) or unlock (false) the route |
+
+### splitRoute
+
+Cut a route at one of its inner points: the route ends there and a new route of the same group goes on from the cut. Points are counted from 0.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `route` | integer (min 0) | yes | Route id (see map_list kind=routes) |
+| `point` | integer | yes | Index of the inner point to cut at (points are counted from 0) |
+
+### joinRoutes
+
+Join two routes of the same group that meet at an endpoint into one continuous route; `other` is removed. The result starts where one started and ends where the other ended.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `route` | integer (min 0) | yes | Route that keeps the joined line |
+| `other` | integer (min 0) | yes | Route to join into it (removed afterwards) |
+
 ### removeRoute
 
 Delete a route.
@@ -302,6 +600,19 @@ Draw a river from its source to its mouth through map points (all on land; the p
 | `path` | path | yes | [[x, y], ...] source first, in map units, at least 2 points on land |
 | `name` | string | no | River name (generated if omitted) |
 | `flux` | number (min 1) | no | Water flow that sets the river width (default from config: a modest river). Cells that already carry more keep it |
+
+### updateRiver
+
+Change a river's name, type (a free label such as River, Creek or Fork), mainstem and/or width (source width and width factor). Give at least one field. parent: the river this one flows into, or its own id to make it a mainstem.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `river` | integer (min 1) | yes | River id (see map_list kind=rivers) |
+| `name` | string | no | New name |
+| `type` | string | no | Free type label such as River, Creek or Fork |
+| `parent` | integer (min 1) | no | River it is a tributary of (its own id = mainstem) |
+| `sourceWidth` | number (min 0) | no | Width at the source, in km (the mouth width follows) |
+| `widthFactor` | number (min 0) | no | How fast the river widens downstream |
 
 ### removeRiver
 
@@ -379,6 +690,19 @@ Persistent annotations drawn over the map and saved with it (they come back afte
 | `size` | number (min 0.5, max 100) | no | marker radius, text size or line width, in map units |
 | `id` | integer (min 1) | no | remove only: the annotation id from list |
 
+### createSubmap
+
+Destructively resample a region into a new map, undoable through map_undo. MCP saves maps/pre-submap.map before resampling. Needs explicit confirmDestructiveResample:true. Bounds are expanded to the native canvas ratio, never stretched; effective bounds are returned. Native generation density is reused. Selections and free annotations are cleared in the child.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `x0` | number | yes | Left edge in map units |
+| `y0` | number | yes | Top edge in map units |
+| `x1` | number | yes | Right edge in map units |
+| `y1` | number | yes | Bottom edge in map units |
+| `confirmDestructiveResample` | boolean | yes | Must be true; use map_view/map_export inset for a non-destructive loupe |
+| `rescaleBurgStyles` | boolean | no | Scale native burg icons and labels (default true) |
+
 ### rename
 
 Rename a state, province, burg, culture, religion or river. For states and provinces `full_name` is the long form shown on the map (defaults to `name`).
@@ -398,6 +722,37 @@ Change the colour of a state (hex like #aa3355).
 |---|---|---|---|
 | `state` | integer (min 1) | yes | State id |
 | `color` | string | yes | Hex colour, e.g. #aa3355 |
+
+### applyStylePreset
+
+Replace the whole visual style with a preset: one of Azgaar's built-in themes (offline files) or a custom preset saved in this browser. map_list kind=styles shows the current preset and every style value; setStyle adjusts single values afterwards.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `preset` | string | yes | Preset name: default, ink, ancient, cinderwood, clean, atlas, light, pale, watercolor, frostbite, gloom, darkSeas, cyberpunk, night, monochrome, or a custom preset key from map_list kind=styles |
+
+### setStyle
+
+Set one value of the map's style by its path, such as "ocean.groups.base.attrs.fill" or "relief.options.density". map_list kind=styles lists the paths. Pass value: null to unset an attribute.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `path` | string | yes | Style path: element[.groups.group][.attrs\|.options].name, e.g. "ocean.groups.base.attrs.fill" |
+| `value` | scalar | no | The new value: text, a number or true/false. null unsets an attribute |
+
+### setTopography
+
+Configure native heightmap contour lines, slope hachures, hypsometric fills and terraces; show the heightmap layer and redraw immediately. Partial update only, no terrain data changes. target land (default), ocean or both. isolineFills:false requires at least contours or hachures, and maps to native line-only modes. map_layers preset=topographic selects the seven atlas layers.
+
+| Parameter | Type | Required | Meaning |
+|---|---|---|---|
+| `target` | one of: `land`, `ocean`, `both` | no | Height bands to configure; default land |
+| `scheme` | string | no | Native registered color scheme (bright, light, natural, green, olive, livid, monochrome); unknown names refused |
+| `contours` | boolean | no | Show smooth elevation contour lines |
+| `contourInterval` | integer (min 2, max 20) | no | Contour interval in native height units (2..20) |
+| `hachures` | boolean | no | Show downhill tapered slope hachures |
+| `isolineFills` | boolean | no | Show colored hypsometric fills (false = line-only; requires contours or hachures) |
+| `terracing` | number (min 0, max 20) | no | Native terrace shadow strength, 0 disables |
 
 ## Selection shapes (`map_select`)
 

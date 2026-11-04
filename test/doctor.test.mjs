@@ -44,6 +44,6 @@ describe("doctor", { timeout: 120000 }, () => {
       if (real === undefined) delete process.env.FMG_CONFIG;
       else process.env.FMG_CONFIG = real;
     }
-    assert.match(lines.join("\n"), /Azgaar is not built[\s\S]*npm run setup/);
+    assert.match(lines.join("\n"), /Azgaar is not built[\s\S]*npm run build:azgaar/);
   });
 });

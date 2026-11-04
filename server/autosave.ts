@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { MapSession } from "./browser.ts";
 
@@ -18,9 +18,14 @@ export class Autosave {
     const text = await this.session.call<string>("exportMap");
     if (text === this.lastWritten) return false;
     mkdirSync(dirname(this.file), { recursive: true });
-    const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, text);
-    renameSync(tmp, this.file); // a crash mid-write must never leave a half-written autosave
+    const tmp = `${this.file}.${process.pid}.tmp`; // per process: two servers on one maps folder must not share a half-written file
+    try {
+      writeFileSync(tmp, text);
+      renameSync(tmp, this.file); // a crash mid-write must never leave a half-written autosave
+    } catch (err) {
+      rmSync(tmp, { force: true }); // e.g. Windows refusing to replace a file an antivirus holds open
+      throw err;
+    }
     this.lastWritten = text;
     return true;
   }

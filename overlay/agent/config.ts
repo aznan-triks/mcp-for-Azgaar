@@ -50,6 +50,17 @@ export interface AgentConfig {
   view3dSampleSize: number; // the 3D picture is shrunk to this many pixels a side for the comparison
   view3dTextureMax: number; // largest texture the person may ask for (the renderer also clamps to the graphics card)
   view3dDefaultDistance: { relief: number; globe: number }; // camera distance when none is given
+  view3dSunVectorLength: number; // distance used to turn azimuth/altitude into the renderer's directional sun vector
+  downsampleMaxDimension: number; // longest side of a source or result canvas
+  downsampleMaxSupersample: number; // largest accepted supersample factor
+  downsampleJpegQuality: number; // final JPEG quality after filtering
+  downsampleBlobLifetimeMs: number; // allow the browser download to start before revoking its URL
+  minContourInterval: number;
+  insetBackground: string;
+  insetInk: string;
+  insetCover: number;
+  insetMargin: number;
+  insetTitleMax: number;
   diptychBgColor: string; // background colour of the composite diptych plate
   diptychTextColor: string; // main title and label colour
   diptychSubtextColor: string; // subtitle and coordinates colour
@@ -109,6 +120,17 @@ export const DEFAULT_CONFIG: AgentConfig = {
   view3dSampleSize: 32,
   view3dTextureMax: 8192,
   view3dDefaultDistance: { relief: 640, globe: 3 },
+  view3dSunVectorLength: 1000,
+  downsampleMaxDimension: 8192,
+  downsampleMaxSupersample: 4,
+  downsampleJpegQuality: 0.92,
+  downsampleBlobLifetimeMs: 5000,
+  minContourInterval: 2,
+  insetBackground: "#fff9ed",
+  insetInk: "#342b22",
+  insetCover: 0.4,
+  insetMargin: 0.02,
+  insetTitleMax: 120,
   diptychBgColor: "#01040a",
   diptychTextColor: "#ffffff",
   diptychSubtextColor: "#94a3b8",
@@ -123,3 +145,6 @@ export function configure(partial: Partial<AgentConfig>): AgentConfig {
   Object.assign(config, partial);
   return config;
 }
+
+/** Composite military id base: a regiment is addressed as stateId * REGIMENT_ID_BASE + regimentId, in map_list and in every military command. Not a tunable: changing it breaks stored references. */
+export const REGIMENT_ID_BASE = 10000;

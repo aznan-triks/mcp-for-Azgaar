@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { MapSession } from "./browser.ts";
 
@@ -7,6 +7,17 @@ export interface Entry {
   label: string;
   file: string;
   at: string;
+}
+
+const SAVE_DATE_FIELD = 2; // const-ok: position of the save date in the "|"-separated first line of a .map
+const RESCUE_COPIES = 3; // const-ok: rescue checkpoints kept (the newest has no number in its name)
+
+/** The first line of a .map carries the day it was saved: the same map saved on two days must still compare equal. */
+export function withoutSaveDate(map: string): string {
+  const end = map.indexOf("\n");
+  const head = (end === -1 ? map : map.slice(0, end)).split("|");
+  if (head.length > SAVE_DATE_FIELD) head[SAVE_DATE_FIELD] = "";
+  return head.join("|") + (end === -1 ? "" : map.slice(end));
 }
 
 function slug(label: string): string {
@@ -57,11 +68,11 @@ export class History {
     while (this.past.length > this.max) this.forget(this.past.shift() as Entry);
   }
 
-  /** True when the map now is the same as the snapshot taken before the change (nothing happened). */
+  /** True if an action (such as opening a dialog) did not change the saved map. */
   async lastSnapshotMatchesCurrent(): Promise<boolean> {
     const last = this.past.at(-1);
     if (!last) return false;
-    return readFileSync(last.file, "utf8") === (await this.session.call<string>("exportMap"));
+    return withoutSaveDate(readFileSync(last.file, "utf8")) === withoutSaveDate(await this.session.call<string>("exportMap"));
   }
 
   /** The change failed or changed nothing: drop the snapshot taken for it. */
@@ -85,10 +96,21 @@ export class History {
     await this.session.call("importMap", readFileSync(entry.file, "utf8"), true); // same geography: keep selections
   }
 
-  /** Saves a rescue checkpoint of the current map before an undo or disruptive revert. */
+  /**
+   * Saves a rescue checkpoint of the current map before an undo or disruptive revert. The newest is always
+   * `rescue-before-undo.map`; the previous ones are kept as `-1` and `-2`, so a second undo cannot overwrite
+   * the hand edits that only the first checkpoint holds.
+   */
   async rescue(): Promise<string> {
-    const file = join(dirname(this.dir), "rescue-before-undo.map");
-    const text = await this.session.call<string>("exportMap");
+    const base = join(dirname(this.dir), "rescue-before-undo");
+    const text = await this.session.call<string>("exportMap"); // first: if the export fails nothing is moved
+    for (let n = RESCUE_COPIES - 1; n >= 1; n -= 1) {
+      const from = n === 1 ? `${base}.map` : `${base}-${n - 1}.map`;
+      if (!existsSync(from)) continue;
+      rmSync(`${base}-${n}.map`, { force: true });
+      renameSync(from, `${base}-${n}.map`);
+    }
+    const file = `${base}.map`;
     writeFileSync(file, text);
     return file;
   }

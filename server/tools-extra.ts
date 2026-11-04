@@ -1,9 +1,10 @@
 // Tools that open the rest of Azgaar to the AI: file exports, Azgaar's own action menu, the interface itself,
 // and the generation settings. Registered next to the core tools (see tools.ts).
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { captureInset, insetSchema } from "./inset.ts";
 import type { MapSession } from "./browser.ts";
 import type { Config } from "./config.ts";
 import type { History } from "./history.ts";
@@ -61,9 +62,10 @@ export function registerExtraTools(kit: Kit): void {
       else await autosave();
       return result;
     } catch (err) {
-      const dirty = await session.call<boolean>("lastFailureLeftMapDirty").catch(() => true);
-      if (dirty && (await history.lastSnapshotMatchesCurrent().then(same => !same).catch(() => true))) await history.rollback();
-      else history.dropLast();
+      // Menu/UI actions do not set the bridge's apply-only dirty flag. Compare snapshots instead:
+      // a command may throw *after* changing the map, in which case undo must restore it.
+      if (await history.lastSnapshotMatchesCurrent().catch(() => false)) history.dropLast();
+      else await history.rollback();
       throw err;
     }
   };
@@ -71,47 +73,135 @@ export function registerExtraTools(kit: Kit): void {
   server.registerTool(
     "map_export",
     {
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       title: "Export the map to a file",
       description:
-        `Exports exactly what Azgaar's Export menu exports, into the exports folder (the path is returned). Pictures: svg, png, jpeg (what is on screen NOW: choose the layers first, here or with map_layers), tiles (zip of png tiles). map = the .map save file. Data: json-* (full, minimal, pack/grid cells), geojson-* (cells, routes, rivers, markers, zones), csv-* (burgs, biomes, relations, goods, markers, markets, military, regiments, notes, zones). Options: only_layers = show exactly these layers and hide the others (e.g. ["heightmap","cultures"]); layer_preset = one of Azgaar's layer presets (political, cultural, religions, provinces, biomes, heightmap, physical...); resolution = picture scale factor; clean = true forces port anchors, routes, markers and ice off (default from export.clean); name = file name. The whole map is framed for pictures. A png/jpeg is also returned as an image unless the model cannot see images.`,
+        "Exports the map to exportsDir. Pictures: png/jpeg (exact width, height or resolution; an inline preview is returned), svg or tiles (ZIP). Opt-in bitmap supersample 1..4 captures vectors at higher resolution (source capped by export.maxSourcePixels), then filters down via lanczos3, stepdown or fast; the default screenshot path is unchanged. Data: map, json-* (full, minimal, cells), geojson-* (cells, routes, rivers, markers, zones), csv-* (burgs, biomes, relations, goods, markers, markets, military, regiments, notes, zones). only_layers selects exactly the visible layers; layer_preset uses a saved/config or native Azgaar preset; clean hides port anchors, routes, markers and ice. For pictures the whole map is framed and the camera and layers are restored afterwards.",
       inputSchema: {
-        format: z.enum(FORMATS),
+        inset: insetSchema.optional().describe("Non-destructive atlas: global map, locator rectangle and framed regional loupe. PNG/JPEG only, without supersample/filter."),
+        format: z.enum(FORMATS).optional(),
         name: z.string().optional(),
+        width: z.number().int().min(1).optional(),
+        height: z.number().int().min(1).optional(),
         only_layers: z.array(z.string()).optional(),
         layer_preset: z.string().optional(),
         resolution: z.number().positive().optional(),
-        clean: z.boolean().optional()
+        supersample: z.number().int().min(1).max(4).optional(),
+        filter: z.enum(["lanczos3", "stepdown", "fast"]).optional(),
+        clean: z.boolean().optional(),
+        max_image_bytes: z.number().int().min(cfg.limits.imageBytesMin).max(cfg.limits.imageBytesMax).optional()
       }
     },
-    guarded(async ({ format, name, only_layers, layer_preset, resolution, clean }) => {
-      mkdirSync(cfg.exportsDir, { recursive: true });
-      const isPicture = (PICTURES as readonly string[]).includes(format);
-      if (only_layers?.length || layer_preset) await session.call("setLayers", { only: only_layers, preset: layer_preset });
-      if (isPicture) await session.call("setCamera", { scale: 1, duration: 0 });
-      const wantsClean = clean ?? cfg.export.clean;
-      let result: { file: string; bytes: number };
+    guarded(async ({ inset, format, name, width, height, only_layers, layer_preset, resolution, supersample, filter, clean, max_image_bytes }) => {
+      const fmt = format ?? cfg.export.format;
+      const isPicture = (PICTURES as readonly string[]).includes(fmt);
+      const bitmap = fmt === "png" || fmt === "jpeg";
+      if (resolution !== undefined && (width !== undefined || height !== undefined))
+        throw new Error("map_export: give width/height OR resolution, not both");
+      if (!bitmap && (width !== undefined || height !== undefined))
+        throw new Error("map_export: width/height only apply to png or jpeg");
+      if (!isPicture && resolution !== undefined)
+        throw new Error("map_export: resolution only applies to pictures");
+      if (!bitmap && (supersample !== undefined || filter !== undefined))
+        throw new Error("map_export: supersample/filter only apply to png or jpeg");
+      if (inset && (!bitmap || supersample !== undefined || filter !== undefined))
+        throw new Error("map_export: inset only supports png/jpeg without supersample/filter");
+      if (inset) await session.call("validateInset", inset);
+      const factor = supersample ?? 1;
+      const imageFilter = filter ?? "lanczos3";
+      const view = session.viewportSize();
+      const before = isPicture ? await session.call<{ scale: number; visibleMapArea: { x0: number; y0: number; x1: number; y1: number }; mapSize: { width: number } }>("camera") : null;
+      let scale = before ? before.mapSize.width / view.width : 1;
+      if (resolution !== undefined) scale = resolution;
+      else if (bitmap && (width !== undefined || height !== undefined)) {
+        const byWidth = width === undefined ? undefined : width / view.width;
+        const byHeight = height === undefined ? undefined : height / view.height;
+        if (byWidth !== undefined && byHeight !== undefined && Math.abs(byWidth - byHeight) > cfg.limits.scaleTolerance)
+          throw new Error(`map_export: width and height must keep the window's aspect ratio (${view.width}x${view.height}); give only one of them`);
+        scale = (byWidth ?? byHeight) as number;
+      }
+      const outW = Math.round(view.width * scale);
+      const outH = Math.round(view.height * scale);
+      if (isPicture && Math.max(outW, outH) > cfg.export.maxPixels)
+        throw new Error(`map_export: ${outW}x${outH} exceeds export.maxPixels (${cfg.export.maxPixels})`);
+      if (bitmap && factor > 1 && Math.max(outW * factor, outH * factor) > cfg.export.maxSourcePixels)
+        throw new Error(`map_export: ${outW * factor}x${outH * factor} supersampled source exceeds export.maxSourcePixels (${cfg.export.maxSourcePixels})`);
+      const layerChange = isPicture && (only_layers !== undefined || layer_preset !== undefined);
+      const layersBefore = layerChange ? (await session.call<{ active: string[] }>("layers")).active : null;
+      const wantsClean = isPicture && (clean ?? cfg.export.clean);
+      let file = "";
+      let bytes = 0;
+      let picture: Buffer | null = null;
+      let downsampleMs = 0;
+      let shownLayers: string[] = [];
       try {
-        if (isPicture && wantsClean) await session.call("setCleanMode", true, cfg.export.cleanHide);
-        if (format === "map") {
-          const safe = (name ?? `map-${Date.now()}`).replace(/[^A-Za-z0-9._ -]/g, "_").replace(/\.map$/i, "");
-          const file = join(cfg.exportsDir, `${safe}.map`);
-          writeFileSync(file, await session.call<string>("exportMap"));
-          result = { file, bytes: statSync(file).size };
-        } else if (isPicture) {
-          result = await session.captureDownload(() => session.call("exportPicture", { format, resolution }), name);
-        } else {
-          result = await session.captureDownload(() => session.call("menuRun", { id: MENU_EXPORTS[format] }), name);
+        if (layer_preset && isPicture) {
+          const saved = loadPresets()[layer_preset];
+          await session.call("setLayers", saved ? { only: saved } : { preset: layer_preset });
         }
+        if (only_layers !== undefined && isPicture) await session.call("setLayers", { only: only_layers });
+        if (wantsClean) await session.call("setCleanMode", true, cfg.export.cleanHide);
+        if (isPicture && !inset) {
+          await session.call("setCamera", { scale: 1, duration: 0 });
+          await settle();
+        }
+        mkdirSync(cfg.exportsDir, { recursive: true });
+        if (bitmap) {
+          if (inset) picture = (await captureInset(session, inset, outW, outH, fmt)).bytes;
+          else {
+            const captured = await session.captureFiltered(scale, fmt, cfg.export.jpegQuality, outW, outH, factor, imageFilter);
+            picture = captured.data;
+            downsampleMs = captured.downsampleMs;
+          }
+          const base = name ? safeName(name) : `map-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+          file = join(cfg.exportsDir, `${base}.${fmt === "png" ? "png" : "jpg"}`);
+          writeFileSync(file, picture);
+          bytes = picture.length;
+        } else if (fmt === "map") {
+          const base = name ? safeName(name) : `map-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+          file = join(cfg.exportsDir, `${base}.map`);
+          writeFileSync(file, await session.call<string>("exportMap"));
+          bytes = statSync(file).size;
+        } else {
+          const trigger = isPicture ? () => session.call("exportPicture", { format: fmt, resolution })
+            : () => session.call("menuRun", { id: MENU_EXPORTS[fmt] });
+          const result = await session.captureDownload(trigger, name);
+          file = result.file;
+          bytes = result.bytes;
+        }
+        shownLayers = (await session.call<{ active: string[] }>("layers")).active;
       } finally {
-        if (isPicture && wantsClean) await session.call("setCleanMode", false).catch(() => undefined);
+        if (wantsClean) await session.call("setCleanMode", false).catch(() => undefined);
+        if (layersBefore) await session.call("setLayers", { only: layersBefore }).catch(() => undefined);
+        if (before && !inset) {
+          const b = before.visibleMapArea;
+          await session.call("setCamera", { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, scale: before.scale, duration: 0 }).catch(() => undefined);
+        }
       }
-      const layers = await session.call<{ active: string[] }>("layers");
-      const content: Content[] = [text({ exported: format, file: result.file, bytes: result.bytes, layersOnScreen: layers.active, clean: wantsClean })];
-      const ext = result.file.slice(result.file.lastIndexOf(".")).toLowerCase();
-      if (MIME[ext] && !cfg.view.textOnly) {
-        if (result.bytes <= cfg.view.maxImageBytes) content.unshift({ type: "image", data: readFileSync(result.file).toString("base64"), mimeType: MIME[ext] });
-        else content.push(text("The picture is too large to attach here; it is saved at the path above."));
+      const limit = max_image_bytes ?? cfg.view.maxImageBytes;
+      const details: Record<string, unknown> = { exported: fmt, file, saved: file, bytes, clean: wantsClean, layersOnScreen: shownLayers, ...(inset ? { inset } : {}) };
+      const content: Content[] = [];
+      if (bitmap && picture) {
+        details.widthPx = outW;
+        details.heightPx = outH;
+        details.scale = Math.round(scale * 1e3) / 1e3; // const-ok: three decimal places for display
+        if (supersample !== undefined || filter !== undefined)
+          Object.assign(details, { supersample: factor, filter: imageFilter, downsampleMs });
+        if (!cfg.view.textOnly) {
+          details.inlinePicture = bytes <= limit ? "the export itself" : `a preview (export heavier than ${limit} bytes)`;
+          if (bytes <= limit) content.push({ type: "image", data: picture.toString("base64"), mimeType: MIME[fmt === "png" ? ".png" : ".jpg"] });
+          else {
+            if (inset) {
+              const shot = await session.call<{ base64: string }>("downsampleImage", { base64: picture.toString("base64"), width: view.width, height: view.height, mimeType: "image/jpeg", filter: "fast", quality: cfg.view.jpegQuality / 100 });
+              content.push({ type: "image", data: shot.base64, mimeType: "image/jpeg" });
+            } else {
+              const shot = await session.screenshot({ maxBytes: limit });
+              content.push({ type: "image", data: shot.data.toString("base64"), mimeType: shot.mimeType });
+            }
+          }
+        }
       }
+      content.push(text(details));
       return { content };
     })
   );
@@ -119,16 +209,22 @@ export function registerExtraTools(kit: Kit): void {
   server.registerTool(
     "map_3d",
     {
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       title: "3D picture: relief scene or globe",
       description:
-        "Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief only), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet; diptych saves a single composite plate showing both hemispheres side-by-side with planetary cartouche. sun_position {x, y, z}; atmosphere = sky and horizon fog (relief); erosion (relief); height_scale (relief); distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.",
+        "Saves a 3D picture of the map (Azgaar's own 3D engine) in the exports folder and returns its path, size and weight plus an inline picture. mode relief = a lit terrain scene; globe = the map wrapped on a planet (its true longitude span is respected and the closing ocean fills the rest, edges faded so no seam shows). preset: satellite (procedural terrain texture, relief or globe), heightmap or biomes (the flat map drawn with that layer preset is the texture). rotation {x, y} in degrees: globe = longitude/latitude of the view centre (0/0 = the middle of the map); relief = azimuth around the map and tilt from straight down. hemispheres both (globe) saves two pictures, west and east, for a map that does not cover the whole planet; diptych saves a single composite plate showing both hemispheres side-by-side with planetary cartouche. sun_position {x, y, z} or {azimuth, altitude} in degrees; atmosphere = sky/fog (relief), Fresnel halo (globe, on by default); clouds = procedural cloud shell (globe only); erosion = terrain mesh (relief) or baked globe bump detail; height_scale = terrain exaggeration (relief) or satellite shading scale (globe); diptych: true aliases hemispheres: diptych; distance = camera distance; texture_resolution (pixels, a power of two; clamped to what the graphics card and Azgaar accept); clean hides port anchors, routes, markers and ice from the texture. output png, jpeg or webp. The picture has the size of the browser window. The flat map, its layers and its settings are put back afterwards. Needs WebGL: a browser without it gives a clear error.",
       inputSchema: {
         mode: z.enum(["relief", "globe"]),
         preset: z.enum(Object.keys(cfg.view3d.presets) as [string, ...string[]]).optional(),
         rotation: z.object({ x: z.number(), y: z.number() }).optional(),
         hemispheres: z.enum(["single", "both", "diptych"]).optional(),
-        sun_position: z.object({ x: z.number(), y: z.number(), z: z.number().optional() }).optional(),
+        diptych: z.boolean().optional(), // alias for hemispheres: diptych
+        sun_position: z.union([
+          z.object({ x: z.number(), y: z.number(), z: z.number().optional() }),
+          z.object({ azimuth: z.number(), altitude: z.number().min(-90).max(90) })
+        ]).optional(),
         atmosphere: z.boolean().optional(),
+        clouds: z.boolean().optional(),
         erosion: z.boolean().optional(),
         height_scale: z.number().min(1).optional(),
         distance: z.number().positive().optional(),
@@ -141,11 +237,13 @@ export function registerExtraTools(kit: Kit): void {
       }
     },
     guarded(async args => {
-      const { mode, preset, rotation, hemispheres, sun_position, atmosphere, erosion, height_scale, distance, texture_resolution, labels, clean, output, name, max_image_bytes } = args;
+      const { mode, preset, rotation, hemispheres, diptych, sun_position, atmosphere, clouds, erosion, height_scale, distance, texture_resolution, labels, clean, output, name, max_image_bytes } = args;
       const globe = mode === "globe";
-      if ((hemispheres === "both" || hemispheres === "diptych") && !globe) throw new Error(`map_3d: hemispheres ${hemispheres} only exists for the globe`);
+      if (diptych && hemispheres && hemispheres !== "diptych") throw new Error("map_3d: diptych conflicts with hemispheres");
+      const hemisphereMode = diptych ? "diptych" : hemispheres;
+      if ((hemisphereMode === "both" || hemisphereMode === "diptych") && !globe) throw new Error(`map_3d: hemispheres ${hemisphereMode} only exists for the globe`);
+      if (clouds && !globe) throw new Error("map_3d: clouds only exist on the globe");
       const chosen = preset ? cfg.view3d.presets[preset] : undefined;
-      if (globe && (chosen?.satellite || erosion || chosen?.erosion)) throw new Error("map_3d: satellite and erosion only exist in relief mode");
       const fmt = output ?? cfg.view3d.format;
       const wantsClean = clean ?? cfg.export.clean;
       const layerSet = chosen?.layerPreset ? loadPresets()[chosen.layerPreset] : undefined;
@@ -173,12 +271,13 @@ export function registerExtraTools(kit: Kit): void {
       try {
         if (layerSet) await session.call("setLayers", { only: layerSet });
         if (wantsClean) await session.call("setCleanMode", true, cfg.export.cleanHide);
-        const first = (hemispheres === "both" || hemispheres === "diptych") ? { x: 0, y: rotation?.y ?? 0 } : rotation;
+        const first = (hemisphereMode === "both" || hemisphereMode === "diptych") ? { x: 0, y: rotation?.y ?? 0 } : rotation;
         opened = await session.call<Record<string, unknown>>("open3d", {
           mode,
           satellite: chosen?.satellite,
           erosion: erosion ?? chosen?.erosion,
           atmosphere,
+          clouds,
           sun: sun_position,
           scale: height_scale,
           textureResolution: texture_resolution,
@@ -188,7 +287,7 @@ export function registerExtraTools(kit: Kit): void {
         });
         if (opened.finished === false) notes.push("the 3D picture was still changing when the wait ran out: ask again, or lower texture_resolution");
         if (globe) globeInfo = await session.call<Record<string, unknown>>("globeInfo");
-        if (hemispheres === "diptych") {
+        if (hemisphereMode === "diptych") {
           if (rotation && rotation.x !== 0) notes.push("rotation.x is ignored with hemispheres diptych (the two views are centred on the west and east halves of the map)");
           const span = Number(globeInfo?.mapLongitudeDegrees ?? 0);
           const shift = span * cfg.view3d.hemisphereOffset;
@@ -218,7 +317,7 @@ export function registerExtraTools(kit: Kit): void {
             inline = { type: "image", data: smallDipt.data, mimeType: smallDipt.mimeType };
           }
           shots.push({ label: "diptych", file, widthPx: pic.width, heightPx: pic.height, bytes: bytes.length, inline });
-        } else if (hemispheres === "both") {
+        } else if (hemisphereMode === "both") {
           if (rotation && rotation.x !== 0) notes.push("rotation.x is ignored with hemispheres both (the two views are centred on the west and east halves of the map)");
           const span = Number(globeInfo?.mapLongitudeDegrees ?? 0);
           const shift = span * cfg.view3d.hemisphereOffset;
@@ -241,6 +340,7 @@ export function registerExtraTools(kit: Kit): void {
   server.registerTool(
     "map_menu",
     {
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       title: "Azgaar's action menu",
       description:
         "Azgaar's own list of actions, the same ones its search bar offers: open any editor or overview (states, burgs, cultures, religions, provinces, heightmap, biomes, diplomacy, zones, military, markers, routes, rivers, notes, units, coastline...), regenerate anything (regenerateRivers, regenerateBurgs, regenerateCultures, regenerateStates, regenerateReliefIcons, regenerateMarkers...), open charts and hierarchies. action=list (optional query to filter) shows the ids; action=run executes one: the previous state is saved first (map_undo reverts it). Editors open as dialogs: operate them with map_ui.",
@@ -258,9 +358,10 @@ export function registerExtraTools(kit: Kit): void {
   server.registerTool(
     "map_ui",
     {
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       title: "Use Azgaar's interface",
       description:
-        "Operate Azgaar's own screen like a person: the open dialogs (editors opened with map_menu), the side menu and any button or field, so that nothing the interface offers is out of reach. list: open dialogs with their text, and their controls (scope dialogs | menu | page; query filters). find: same with a query. get: one control's value. hidden:true also lists controls of closed panels (like the Options side menu: by id they can still be read and set). click / set: act on a control given by ref (from list/find), id, selector or text (the visible label); set takes value for fields, checkboxes and drop-downs. upload: give path plus either a file input (id/selector) or the button that opens the file picker (text/ref/id), e.g. a heightmap picture. close_dialogs. After a click or set the open dialogs are returned; clicks and sets are undoable (the previous state is saved, and dropped if nothing changed). Set view:true to also get the picture.",
+        "Operate Azgaar's own screen like a person: the open dialogs (editors opened with map_menu), the side menu and any button or field, so that nothing the interface offers is out of reach. list: open dialogs with their text, and their controls (scope dialogs | menu | page; query filters). find: same with a query. get: one control's value. hidden:true also lists controls of closed panels (like the Options side menu: by id they can still be read and set). click / set: act on a control given by ref (from list/find), id, selector or text (the visible label); set takes value for fields, checkboxes and drop-downs. When a text fits several controls equally well, the one acted on is reported with the others in alsoMatched and a warning: name the one you mean by ref, id or selector. upload: give path plus either a file input (id/selector) or the button that opens the file picker (text/ref/id), e.g. a heightmap picture. close_dialogs. After a click or set the open dialogs are returned; clicks and sets are undoable (the previous state is saved, and dropped if nothing changed). Set view:true to also get the picture.",
       inputSchema: {
         action: z.enum(["list", "find", "get", "click", "set", "close_dialogs", "upload"]),
         path: z.string().optional(),
@@ -287,14 +388,8 @@ export function registerExtraTools(kit: Kit): void {
         result = await undoable(`ui upload ${args.id ?? args.selector ?? args.text ?? args.ref}`, async () => {
           const page = await session.ensure();
           const isFileInput = target ? await page.evaluate(sel => (document.querySelector(sel) as HTMLInputElement | null)?.type === "file", target) : false;
-          if (isFileInput && target) await page.setInputFiles(target, path, { timeout: cfg.limits.exportTimeoutMs });
-          else {
-            // a button that opens the file picker: answer the picker with the file
-            const chooser = page.waitForEvent("filechooser", { timeout: cfg.limits.exportTimeoutMs });
-            chooser.catch(() => undefined);
-            await session.call("uiClick", args);
-            await (await chooser).setFiles(path);
-          }
+          if (isFileInput && target) await session.setInputFile(target, path);
+          else await session.uploadViaPicker(() => session.call("uiClick", args), path);
           await settle();
           return session.call("uiList", { scope: "dialogs", limit: 0 });
         });
@@ -312,6 +407,7 @@ export function registerExtraTools(kit: Kit): void {
   server.registerTool(
     "map_options",
     {
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       title: "Generation settings",
       description:
         "Read or change what the NEXT generated map is built from (Azgaar's Options): number of states, cultures (and the culture set), religions, burgs, province ratio, growth rates, heightmap template (continents, archipelago, island... see the choices returned), points density, map size and position, lake limits. action=get shows the values and the valid choices (section generation by default; map = the current map's own settings: units, climate, lore, style preset; app = preferences). A new map re-rolls most settings at random unless they are pinned: action=set pins the values you give (partial object, validated by Azgaar's own rules, nothing changes if anything is refused), e.g. {states:{limit:12}, template:\"archipelago\"}; section map pins climate, units, calendar and map name for the next map. Then call map_file new to generate with them. action=release forgets pins (all, or names) so settings are random again. The CURRENT map's settings are changed with the editors (map_menu / map_ui).",

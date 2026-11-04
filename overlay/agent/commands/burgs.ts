@@ -29,7 +29,7 @@ const addBurg: Command = {
   run(p: Params): CommandResult {
     const [x, y] = [round(p.x as number, 2), round(p.y as number, 2)];
     freeLandCell(x, y);
-    const id = Burgs.add([x, y]);
+    const id = Burgs.add(x, y);
     if (typeof p.name === "string") pack.burgs[id].name = p.name;
     redrawEmblem("burg", id);
     Layers.draw("burgIcons", "labels", "routes");
@@ -172,4 +172,15 @@ const editBurg: Command = {
   }
 };
 
-export const burgCommands: Command[] = [addBurg, moveBurg, removeBurg, editBurg];
+/**
+ * The same edit under the name the assistant's operations and the task plans use (Burgs.setPopulation /
+ * setBuilding / setPort compose to it). One registry entry pointing at the published implementation.
+ */
+const updateBurg: Command = {
+  ...editBurg,
+  name: "updateBurg",
+  description:
+    "Change a city's architecture and demography: population (number of people, as map_list kind=burgs shows it) and/or its features: citadel, walls, plaza (market square), temple, shanty town, port. A port needs navigable water nearby. A plaza that is the centre of a market cannot be removed. Same behavior as editBurg."
+};
+
+export const burgCommands: Command[] = [addBurg, moveBurg, removeBurg, editBurg, updateBurg];

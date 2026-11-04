@@ -1,4 +1,5 @@
 // End-to-end check of the in-page bridge (FMG_AGENT) on a fixed seed. No real user map is ever touched.
+import { diplomacyMilitaryScenario, militaryProbe } from "./diplomacy-military.scenario.ts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../server/config.ts";
@@ -9,8 +10,9 @@ const cfg = loadConfig();
 const work = join(dirname(fileURLToPath(import.meta.url)), "..", ".test-tmp");
 cfg.browser.headless = true;
 cfg.profileDir = join(work, `profile-${process.pid}`);
-cfg.map.seed = "333";
-cfg.browser.viewport = { width: 1280, height: 720 }; cfg.map.width = 1280; cfg.map.height = 720;
+cfg.map.seed = "trois";
+cfg.browser.viewport = { width: 1280, height: 720 }; cfg.map.width = 1280; cfg.map.height = 720; // tests do not depend on the user-facing default size
+
 if (process.env.FMG_TEST_CHROMIUM) { cfg.browser.executablePath = process.env.FMG_TEST_CHROMIUM; cfg.browser.channel = null; }
 cfg.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
 const web = await startStaticServer(cfg.azgaarDist, cfg.server.host, 0);
@@ -26,14 +28,32 @@ const check = (name, ok, extra = "") => { console.log(`${ok ? "PASS" : "FAIL"}  
 await page.waitForTimeout(500);
 const A = (fn, arg) => page.evaluate(fn, arg);
 
+// ---- TASK-06: browser smoke, including the snapshot/import primitive used by map_undo
+await diplomacyMilitaryScenario({
+  apply: (command, params) => A(([c, p]) => FMG_AGENT.apply(c, p), [command, params]),
+  list: (kind, state) => A(([k, s]) => FMG_AGENT.list(k, s, 10000), [kind, state]),
+  commands: () => A(() => FMG_AGENT.describe().commands.map(c => c.name)),
+  // page.evaluate takes the probe source as an expression, so this test bundle needs no dynamic evaluation.
+  probe: () => page.evaluate(militaryProbe),
+  snapshot: () => A(() => FMG_AGENT.exportMap()),
+  undo: async snapshot => { await A(t => FMG_AGENT.importMap(t), snapshot); },
+  reject: async (command, params) => {
+    const snap = await A(() => FMG_AGENT.exportMap());
+    const refused = await A(async ([c, p]) => { try { await FMG_AGENT.apply(c, p); return false; } catch { return true; } }, [command, params]);
+    check(`${command}: invalid input rejected`, refused);
+    await A(t => FMG_AGENT.importMap(t), snap);
+  },
+  passed: label => check(`TASK-06 ${label}`, true)
+});
+
 // ---- queries
 const sum = await A(() => FMG_AGENT.summary());
 check("summary lists states", sum.states.length > 5, `states=${sum.states.length}`);
 const bigStates = sum.states.filter(s => s.cells >= 60);
 const neighbourPairs = bigStates.flatMap(a => a.neighbours.map(n => bigStates.find(s => s.id === n)).filter(Boolean).map(b => [a, b]));
-// Two big neighbouring states, whatever the seed: the largest "smaller side" wins.
-const [gazd, khuzd] = neighbourPairs.sort((p, q) => Math.min(q[0].cells, q[1].cells) - Math.min(p[0].cells, p[1].cells))[0] ?? [];
-check("found two big neighbouring states", Boolean(gazd && khuzd), `${gazd?.id} ${khuzd?.id}`);
+// Two big neighbouring states, whatever the generator calls them: the largest smaller side wins.
+const [receiver, source] = neighbourPairs.sort((p, q) => Math.min(q[0].cells, q[1].cells) - Math.min(p[0].cells, p[1].cells))[0] ?? [];
+check("found two big neighbouring states", Boolean(receiver && source), `${receiver?.id} ${source?.id}`);
 const sumCellsLand = sum.landCells;
 const stateCellSum = () => A(() => { const s = FMG_AGENT.summary(); return s.states.reduce((n, x) => n + x.cells, 0) + s.unclaimedLandCells; });
 check("state cells + unclaimed = land cells (before)", (await stateCellSum()) === sumCellsLand);
@@ -47,34 +67,34 @@ for (const scale of [1, 3, 6, 12]) {
     const back = FMG_AGENT.locate({ px, py });
     const off = FMG_AGENT.locate({ px: px + 3, py: py + 3 }); // a few pixels away must still be this cell or a direct neighbour
     return { want: cell, got: back.cell, px, py, offOk: off.cell === cell || pack.cells.c[cell].includes(off.cell) };
-  }, [scale, gazd.capital.cell]);
+  }, [scale, receiver.capital.cell]);
   const inView = r.px >= 0 && r.py >= 0 && r.px <= 1280 && r.py <= 720;
   check(`pixel->cell round trip at zoom ${scale}`, inView && r.got === r.want && r.offOk, `want ${r.want} got ${r.got} px=(${Math.round(r.px)},${Math.round(r.py)}) inView=${inView}`);
 }
 await A(() => FMG_AGENT.setCamera({ scale: 1, duration: 0 }));
 
-// ---- selection + assignState (extend Gazd into Khuzd by 3 layers)
-const sel = await A(([from, to]) => FMG_AGENT.select("border", { from, to, depth: 3 }, {}), [khuzd.id, gazd.id]);
+// ---- selection + assignState (extend recipient state into donor state by 3 layers)
+const sel = await A(([from, to]) => FMG_AGENT.select("border", { from, to, depth: 3 }, {}), [source.id, receiver.id]);
 check("border selection non-empty", sel.count > 20, `count=${sel.count}`);
 const overlayThere = await A(() => Boolean(document.getElementById("fmgAgentOverlay")?.querySelector("path")));
 check("selection preview drawn", overlayThere);
 const inSavedSvg = await A(() => Boolean(document.getElementById("map").querySelector("#fmgAgentOverlay")));
 check("overlay is outside #map (never saved in .map)", !inSavedSvg);
 
-const res = await A(([id, to]) => FMG_AGENT.apply("assignState", { selection: id, state: to }), [sel.id, gazd.id]);
+const res = await A(([id, to]) => FMG_AGENT.apply("assignState", { selection: id, state: to }), [sel.id, receiver.id]);
 check("assignState ok", res.ok && res.changed > 0, JSON.stringify({ changed: res.changed, skipped: res.skipped }));
 const after = await A(() => FMG_AGENT.summary());
-const gazdAfter = after.states.find(s => s.id === gazd.id).cells; const khuzdAfter = after.states.find(s => s.id === khuzd.id).cells;
-check("Gazd gained exactly what Khuzd lost", gazdAfter - gazd.cells === khuzd.cells - khuzdAfter && gazdAfter - gazd.cells === res.changed, `Gazd ${gazd.cells}->${gazdAfter}, Khuzd ${khuzd.cells}->${khuzdAfter}, moved ${res.changed}`);
+const receiverAfter = after.states.find(s => s.id === receiver.id).cells; const sourceAfter = after.states.find(s => s.id === source.id).cells;
+check("recipient state gained exactly what donor state lost", receiverAfter - receiver.cells === source.cells - sourceAfter && receiverAfter - receiver.cells === res.changed, `recipient state ${receiver.cells}->${receiverAfter}, donor state ${source.cells}->${sourceAfter}, moved ${res.changed}`);
 check("state cells + unclaimed = land cells (after)", (await stateCellSum()) === sumCellsLand);
-check("counters not stale (summary == array count)", await A(([id]) => pack.cells.i.filter(c => pack.cells.state[c] === id).length === pack.states[id].cells, [gazd.id]));
+check("counters not stale (summary == array count)", await A(([id]) => pack.cells.i.filter(c => pack.cells.state[c] === id).length === pack.states[id].cells, [receiver.id]));
 check("overlay preview cleared after apply", await A(() => !document.getElementById("fmgAgentOverlay").querySelector("path")));
-check("neighbours include each other", await A(([a, b]) => pack.states[a].neighbors.includes(b), [gazd.id, khuzd.id]));
+check("neighbours include each other", await A(([a, b]) => pack.states[a].neighbors.includes(b), [receiver.id, source.id]));
 
 // capital cells are protected
-const cap = await A(([id]) => pack.states[id].center, [khuzd.id]);
+const cap = await A(([id]) => pack.states[id].center, [source.id]);
 const selCap = await A(([c]) => FMG_AGENT.select("cells", { cells: [c] }, {}), [cap]);
-const resCap = await A(([id, to]) => FMG_AGENT.apply("assignState", { selection: id, state: to }), [selCap.id, gazd.id]);
+const resCap = await A(([id, to]) => FMG_AGENT.apply("assignState", { selection: id, state: to }), [selCap.id, receiver.id]);
 check("capital cell is never taken", resCap.changed === 0 && resCap.skipped.capital_cell === 1, JSON.stringify(resCap.skipped));
 
 // ---- burgs
@@ -91,12 +111,12 @@ const bad = await A(async ([p]) => { try { await FMG_AGENT.apply("addBurg", { x:
 check("burg in water is refused with a clear message", bad.includes("water"), bad);
 const rm = await A(([id]) => FMG_AGENT.apply("removeBurg", { burg: id }), [burgId]);
 check("removeBurg ok", rm.ok && (await A(([id]) => pack.burgs[id].removed === true, [burgId])));
-const capBurg = await A(([id]) => pack.states[id].capital, [gazd.id]);
+const capBurg = await A(([id]) => pack.states[id].capital, [receiver.id]);
 const rmCap = await A(async ([id]) => { try { await FMG_AGENT.apply("removeBurg", { burg: id }); return "no error"; } catch (e) { return e.message; } }, [capBurg]);
 check("capital removal is refused", rmCap.includes("capital"), rmCap);
 
 // ---- rename / validation
-const rn = await A(([id]) => FMG_AGENT.apply("rename", { kind: "state", id, name: "Zorgland", full_name: "Empire of Zorgland" }), [gazd.id]);
+const rn = await A(([id]) => FMG_AGENT.apply("rename", { kind: "state", id, name: "Zorgland", full_name: "Empire of Zorgland" }), [receiver.id]);
 check("rename state", rn.ok && rn.details.to === "Empire of Zorgland");
 const unk = await A(async () => { try { await FMG_AGENT.apply("assignState", { selection: "sel-1", stat: 3 }); return "no error"; } catch (e) { return e.message; } });
 check("unknown parameter is rejected with the allowed list", unk.includes("unknown parameter") && unk.includes("Allowed"), unk);
@@ -117,8 +137,8 @@ const hashPolitics = () => A(() => { const h = a => { let x = 0; for (const v of
 const t0 = Date.now();
 const snap = await A(() => FMG_AGENT.exportMap());
 const hBefore = await hashPolitics();
-const sel2 = await A(([from, to]) => FMG_AGENT.select("border", { from, to, depth: 4 }, {}), [gazd.id, khuzd.id]);
-await A(([id, to]) => FMG_AGENT.apply("assignState", { selection: id, state: to }), [sel2.id, khuzd.id]);
+const sel2 = await A(([from, to]) => FMG_AGENT.select("border", { from, to, depth: 4 }, {}), [receiver.id, source.id]);
+await A(([id, to]) => FMG_AGENT.apply("assignState", { selection: id, state: to }), [sel2.id, source.id]);
 check("second change really changed politics", (await hashPolitics()) !== hBefore);
 await A(t => FMG_AGENT.importMap(t), snap);
 const hRestored = await hashPolitics();
@@ -126,7 +146,7 @@ check("restore returns politics exactly (states, provinces, burgs, names)", hRes
 check("bridge survives a map reload", await A(() => FMG_AGENT.isReady() && typeof FMG_AGENT.summary().cells === "number"));
 
 // ---- selections survive an undo-style reload (kept by position), but not a plain load
-const selKeep = await A(([from, to]) => FMG_AGENT.select("border", { from, to, depth: 3 }, {}), [gazd.id, khuzd.id]);
+const selKeep = await A(([from, to]) => FMG_AGENT.select("border", { from, to, depth: 3 }, {}), [receiver.id, source.id]);
 await A(([t]) => FMG_AGENT.importMap(t, true), [snap]);
 const selAfter = await A(([id]) => { try { return FMG_AGENT.describeSelection(id); } catch { return null; } }, [selKeep.id]);
 check("selection kept after a reload that keeps selections", selAfter !== null && selAfter.count === selKeep.count, `${selAfter?.count} of ${selKeep.count} cells`);
@@ -195,6 +215,8 @@ await restoreBase();
   const r = await A(() => FMG_AGENT.apply("shapeCone", { x: 640, y: 690, radius: 40, peak: 45, scope: "all" }));
   const ms = Date.now() - t0;
   check("terrain rebuild: island creation runs through the rebuild", r.ok && r.details.mode === "rebuild" && r.details.landGridCells.after > r.details.landGridCells.before, `${ms} ms, land ${r.details.landGridCells.before}->${r.details.landGridCells.after}`);
+  check("terrain rebuild: warnings advise map_apply annotate", r.warnings.some(w => w.includes("annotate")));
+  check("terrain rebuild: relief icons regenerated and valid (D-023)", await A(() => pack.relief?.length > 0));
   const after = await A(() => FMG_AGENT.summary());
   check("terrain rebuild: same states and same number of cities", after.counts.states === base.counts.states && after.counts.burgs === base.counts.burgs, `${base.counts.burgs} -> ${after.counts.burgs}`);
   check("terrain rebuild: every capital is still on land", await A(() => pack.states.filter(x => x.i && !x.removed).every(x => pack.cells.h[x.center] >= 20 && pack.burgs[x.capital] && !pack.burgs[x.capital].removed)));
@@ -283,8 +305,50 @@ await restoreBase();
   const rm = await A(([id]) => FMG_AGENT.apply("removeMarker", { marker: id }), [am.details.marker]);
   check("removeMarker: removed", rm.ok && (await A(() => pack.markers.length)) === nMarkers);
 
+  // map_list spatial filters: each expectation is recomputed here by brute force, not by the code under test
+  const sp = await A(() => {
+    const alive = pack.burgs.filter(b => b.i && !b.removed);
+    const ref = alive[Math.floor(alive.length / 2)];
+    const scale = options.map.units.distance.scale;
+    const dist = b => Math.hypot(b.x - ref.x, b.y - ref.y) * scale;
+    const radius = 60 * scale; // 60 map units, whatever the distance scale
+    const expectNear = alive.filter(b => b.i !== ref.i && dist(b) <= radius).map(b => b.i).sort((a, b) => a - b);
+    const gotNear = FMG_AGENT.list("burgs", undefined, 1000, undefined, { near: { burg: ref.i }, within: radius });
+    const rect = { x0: ref.x - 80, y0: ref.y - 50, x1: ref.x + 80, y1: ref.y + 50 };
+    const expectRect = alive.filter(b => b.x >= rect.x0 && b.x <= rect.x1 && b.y >= rect.y0 && b.y <= rect.y1).map(b => b.i).sort((a, b) => a - b);
+    const gotRect = FMG_AGENT.list("burgs", undefined, 1000, undefined, { rect });
+    const north = FMG_AGENT.list("burgs", undefined, 1000, undefined, { near: { burg: ref.i }, within: radius * 3, direction: "N" });
+    const all = FMG_AGENT.list("burgs", undefined, 1000, undefined, { near: { x: ref.x, y: ref.y }, within: radius * 3 });
+    // north = bearing within 22.5 degrees of straight up (y grows downward)
+    const expectNorth = alive.filter(b => b.i !== ref.i && dist(b) <= radius * 3 && Math.abs(Math.atan2(b.x - ref.x, ref.y - b.y)) <= Math.PI / 8 + 1e-9).length;
+    const river = pack.rivers.find(r => r.cells?.length > 5);
+    const riverCells = river.cells.map(c => pack.cells.p[c]).filter(Boolean); // some rivers list an off-map cell (-1)
+    const nearRiver = (b) => Math.min(...riverCells.map(p => Math.hypot(p[0] - b.x, p[1] - b.y))) * scale;
+    const expectRiver = alive.filter(b => nearRiver(b) <= 25 * scale).map(b => b.i).sort((a, b) => a - b);
+    const gotRiver = FMG_AGENT.list("burgs", undefined, 1000, undefined, { near: { river: river.i }, within: 25 * scale });
+    const errors = [];
+    for (const bad of [{ within: 5 }, { near: { x: 1 } }, { near: { x: 1, y: 1, burg: 2 } }, { direction: "UP", near: { burg: ref.i } }, { rect: { x0: 0, y0: 0, x1: 5 } }, { oops: 1 }, {}]) {
+      try { FMG_AGENT.list("burgs", undefined, 5, undefined, bad); errors.push("no error"); } catch (e) { errors.push(e.message); }
+    }
+    try { FMG_AGENT.list("markerTypes", undefined, 5, undefined, { rect: { x0: 0, y0: 0, x1: 9, y1: 9 } }); errors.push("no error"); } catch (e) { errors.push(e.message); }
+    const sorted = gotNear.rows.every((r, i, a) => i === 0 || a[i - 1].distance <= r.distance);
+    return {
+      refId: ref.i, expectNear, gotNear: gotNear.rows.map(r => r.id).sort((a, b) => a - b), sorted, hasUnit: typeof gotNear.distanceUnit === "string", hasSide: gotNear.rows.every(r => typeof r.side === "string"),
+      expectRect, gotRect: gotRect.rows.map(r => r.id).sort((a, b) => a - b), noSortField: gotRect.rows.every(r => r.distance === undefined),
+      northCount: north.rows.length, expectNorth, northAreAll: north.rows.every(r => r.side === "N"), northSubset: north.rows.length <= all.rows.length,
+      expectRiver, gotRiver: gotRiver.rows.map(r => r.id).sort((a, b) => a - b), riverLen: expectRiver.length,
+      errors
+    };
+  });
+  check("map_list near burg + within: same set as a brute-force count (self excluded)", sp.expectNear.length > 0 && JSON.stringify(sp.expectNear) === JSON.stringify(sp.gotNear), `${sp.gotNear.length} found, ${sp.expectNear.length} expected`);
+  check("map_list near: sorted nearest first, with unit, distance and side", sp.sorted && sp.hasUnit && sp.hasSide);
+  check("map_list rect: same set as a brute-force count, no distance field", sp.expectRect.length > 0 && JSON.stringify(sp.expectRect) === JSON.stringify(sp.gotRect) && sp.noSortField, `${sp.gotRect.length} found, ${sp.expectRect.length} expected`);
+  check("map_list direction N: only northern entries, same count as brute force", sp.northAreAll && sp.northSubset && sp.northCount === sp.expectNorth, `${sp.northCount} vs ${sp.expectNorth}`);
+  check("map_list near river + within: any bank cell counts, same set as brute force", sp.riverLen > 0 && JSON.stringify(sp.expectRiver) === JSON.stringify(sp.gotRiver), `${sp.gotRiver.length} found, ${sp.expectRiver.length} expected`);
+  check("map_list spatial: bad filters are refused with a clear message", sp.errors.slice(0, 7).every(m => m !== "no error" && m.startsWith("list:")) && sp.errors[7].includes("no place on the map"), JSON.stringify(sp.errors));
+
   // routes
-  const land = await A(([probe]) => { const a = pack.cells.i.filter(i => pack.cells.h[i] >= 20 && pack.cells.state[i] === pack.cells.state[probe]); return [pack.cells.p[a[0]], pack.cells.p[a[10]], pack.cells.p[a[20]]]; }, [gazd.capital.cell]);
+  const land = await A(([probe]) => { const a = pack.cells.i.filter(i => pack.cells.h[i] >= 20 && pack.cells.state[i] === pack.cells.state[probe]); return [pack.cells.p[a[0]], pack.cells.p[a[10]], pack.cells.p[a[20]]]; }, [receiver.capital.cell]);
   const nRoutes = await A(() => pack.routes.length);
   const ar = await A(([pts]) => FMG_AGENT.apply("addRoute", { path: pts, group: "trails", name: "Old Trail" }), [land]);
   const links = await A(([id]) => Object.values(pack.cells.routes).some(o => Object.values(o).includes(id)), [ar.details.route]);
@@ -390,12 +454,12 @@ await restoreFeatures();
 // ---- ring / rim selections
 {
   await A(t => FMG_AGENT.importMap(t), featureBase);
-  const g = (await A(() => FMG_AGENT.summary())).states.find(x => x.id === gazd.id); // renamed earlier in this test, so match by id
+  const g = (await A(() => FMG_AGENT.summary())).states.find(x => x.id === receiver.id); // renamed earlier in this test, so match by id
   const r1 = await A(([id]) => FMG_AGENT.select("ring", { state: id, depth: 1 }, {}), [g.id]);
   const r3 = await A(([id]) => FMG_AGENT.select("ring", { state: id, depth: 3 }, {}), [g.id]);
   const check1 = await A(([id]) => {
-    const inGazd = c => pack.cells.state[c] === id;
-    const cells = Array.from(pack.cells.i).filter(c => pack.cells.h[c] >= 20 && !inGazd(c) && pack.cells.c[c].some(inGazd));
+    const inReceiver = c => pack.cells.state[c] === id;
+    const cells = Array.from(pack.cells.i).filter(c => pack.cells.h[c] >= 20 && !inReceiver(c) && pack.cells.c[c].some(inReceiver));
     const sel = FMG_AGENT.select("cells", { cells }, {});
     const ring = FMG_AGENT.select("ring", { state: id, depth: 1 }, {});
     const same = FMG_AGENT.select("cells", { cells }, { combine_op: "subtract", combine_with: ring.id });
@@ -425,7 +489,7 @@ await restoreFeatures();
   check("list: finds a city by part of its name, case-insensitive", found.rows.some(r => r.id === some.id) && found.rows.every(r => r.name.toLowerCase().includes(needle.toLowerCase())) && found.total < (await A(() => FMG_AGENT.list("burgs", undefined, 1).total)), `${found.total} match "${needle}"`);
   const none = await A(() => FMG_AGENT.list("burgs", undefined, 50, "zzzzzzqq"));
   check("list: no match gives an empty list, not an error", none.total === 0 && none.rows.length === 0);
-  const g = (await A(() => FMG_AGENT.summary())).states.find(x => x.id === gazd.id);
+  const g = (await A(() => FMG_AGENT.summary())).states.find(x => x.id === receiver.id);
   const stateByName = await A(([n]) => FMG_AGENT.list("states", undefined, 50, n), [g.name.slice(0, 3)]);
   check("list: finds a state by name", stateByName.rows.some(r => r.id === g.id));
 
@@ -444,8 +508,8 @@ await restoreFeatures();
 {
   await A(t => FMG_AGENT.importMap(t), featureBase);
   const base = await A(() => FMG_AGENT.summary());
-  const into = base.states.find(x => x.id === gazd.id);
-  const away = base.states.find(x => x.id === khuzd.id);
+  const into = base.states.find(x => x.id === receiver.id);
+  const away = base.states.find(x => x.id === source.id);
   const oldCapital = away.capital.burg;
   const provinceCount = base.counts.provinces;
   const r = await A(([a, b]) => FMG_AGENT.apply("mergeStates", { states: [a], into: b }), [away.id, into.id]);
@@ -582,7 +646,7 @@ await restoreFeatures();
 // ---- emblems
 {
   await A(t => FMG_AGENT.importMap(t), featureBase);
-  const id = gazd.id;
+  const id = receiver.id;
   const before = await A(([s]) => ({ coa: pack.states[s].coa, shield: pack.states[s].coa.shield, size: pack.states[s].coa.size ?? 1, drawn: document.querySelectorAll("#stateEmblems use").length }), [id]);
   const re = await A(([s]) => FMG_AGENT.apply("regenerateEmblem", { kind: "state", id: s }), [id]);
   const after = await A(([s]) => ({ t1: pack.states[s].coa.t1, shield: pack.states[s].coa.shield, size: pack.states[s].coa.size ?? 1, drawn: document.querySelectorAll("#stateEmblems use").length }), [id]);
@@ -607,15 +671,15 @@ await restoreFeatures();
   await A(t => FMG_AGENT.importMap(t), featureBase);
   const boxes = () => A(() => Array.from(document.querySelectorAll("#legend > g[data-legend]")).map(n => n.dataset.legend));
   const apply = (params) => A(async (p) => { try { return await FMG_AGENT.apply("legend", p); } catch (e) { return { error: e.message }; } }, params);
-  await A(() => document.getElementById("legend").setAttribute("transform", "translate(1690, 931)"));
+  await A(() => document.getElementById("legend").setAttribute("transform", "translate(1690, 931)")); // the leftover shift an old .map can carry (D-008)
   for (const layer of ["states", "provinces", "cultures", "religions", "biomes", "zones", "heightmap", "temperature", "precipitation", "population", "routes", "markets", "trade"]) {
     const r = await apply({ action: "show", layer });
     check(`legend ${layer}: box drawn with items`, r.ok === true && r.details.items.length > 0, r.error ?? `${r.details?.items.length} items`);
   }
-  check("legend: the layer's leftover shift is removed so boxes stay on the canvas", (await A(() => document.getElementById("legend").getAttribute("transform"))) === null);
+  check("legend: the layer's leftover shift is removed so boxes stay on the canvas (D-008)", (await A(() => document.getElementById("legend").getAttribute("transform"))) === null);
   const wide = await apply({ action: "show", layer: "provinces" });
   check("legend: a very long legend is flagged with how to shorten it", Array.isArray(wide.warnings) && wide.warnings.some(w => w.includes("state")), JSON.stringify(wide.warnings));
-  await apply({ action: "hide", layer: "provinces" });
+  await apply({ action: "hide", layer: "provinces" }); // 300+ items cannot fit in a window by nature: judged apart
   const onCanvas = await A(() => Array.from(document.querySelectorAll("#legend > g[data-legend]")).every(n => { const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(n.getAttribute("transform") ?? ""); return m && Number(m[1]) > -50 && Number(m[2]) > -50 && Number(m[1]) < window.innerWidth && Number(m[2]) < window.innerHeight; }));
   check("legend: every box sits inside the window", onCanvas);
   check("legend: a box is named like Azgaar's own editor boxes", (await boxes()).includes("States") && (await boxes()).includes("Biomes"));
@@ -625,11 +689,12 @@ await restoreFeatures();
   check("legend provinces: one state's provinces only", list.ok === true && list.details.items.length < 40, `${list.details?.items.length}`);
   const custom = await apply({ action: "show", layer: "custom", title: "Mine", items: "#aa3355=Dry, lands;#3355aa=Wet | lands", corner: "top-left", columns: 7, opacity: 0.5 });
   check("legend custom: commas and bars in a label are cleaned", custom.ok === true && custom.details.items.join("/") === "Dry lands/Wet lands", JSON.stringify(custom.details?.items));
-  check("legend: columns and opacity applied to the style", (await A(() => [styles.legend.options.columns, styles.legend.box.attrs["fill-opacity"]])).join() === "7,0.5");
+  check("legend: columns and opacity applied to the style", (await A(() => [styles.legend.options.columns, styles.legend.groups.box.attrs["fill-opacity"]])).join() === "7,0.5");
   const corner = await A(() => { const n = document.querySelector('#legend > g[data-legend="Mine"]'); const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(n.getAttribute("transform")); return [Number(m[1]), Number(m[2])]; });
   check("legend: corner top-left puts the box near the top-left of the map", corner[0] < 40 && corner[1] < 40, corner.join(","));
   check("legend custom: a malformed item is refused with an example", String((await apply({ action: "show", layer: "custom", items: "oops" })).error).includes("#aa3355=Label"));
   check("legend: items without layer custom is refused", String((await apply({ action: "show", layer: "states", items: "#aa3355=x" })).error).includes("only goes with layer custom"));
+  // the boxes are part of the saved map (D-017): save, reload, still there
   const withBoxes = await boxes();
   const saved = await A(() => FMG_AGENT.exportMap());
   await A(t => FMG_AGENT.importMap(t), featureBase);
@@ -652,7 +717,7 @@ await restoreFeatures();
   await A(t => FMG_AGENT.importMap(t), featureBase);
 }
 
-// ---- persistent annotations and the goods legend
+// ---- persistent annotations (D-017) and the goods legend
 {
   await A(t => FMG_AGENT.importMap(t), featureBase);
   const run = (params) => A(async (p) => { try { return await FMG_AGENT.apply("annotate", p); } catch (e) { return { error: e.message }; } }, params);
@@ -673,6 +738,7 @@ await restoreFeatures();
   check("annotate: a line needs its path", String((await run({ action: "add", kind: "line" })).error).includes("`path` is required"));
   check("annotate: list gives every id", (await run({ action: "list" })).details.annotations.length === 4);
 
+  // the overlay is saved with the map and comes back, drawn, after a reload
   const saved = await A(() => FMG_AGENT.exportMap());
   await A(t => FMG_AGENT.importMap(t), featureBase);
   check("annotate: another map has none", (await run({ action: "list" })).details.annotations.length === 0);
@@ -690,23 +756,24 @@ await restoreFeatures();
   await A(t => FMG_AGENT.importMap(t), featureBase);
 }
 
-// ---- clean capture mode: pictograms forced off, then put back exactly
+
+// ---- clean capture mode (D-021): pictograms forced off, then put back exactly
 {
   await A(() => FMG_AGENT.setLayers({ show: ["burgIcons", "routes", "markers", "ice"] }));
-  const sels = ["#anchors", "#routes", "#markers", "#ice"];
+  const sels = ["#burgIcons [data-group=anchors]", "#routes", "#markers", "#ice"];
   const shown = await A(sl => sl.map(q => document.querySelector(q) ? getComputedStyle(document.querySelector(q)).display : "missing"), sels);
   const on = await A(sl => FMG_AGENT.setCleanMode(true, sl), sels);
   const hiddenNow = await A(sl => sl.map(q => getComputedStyle(document.querySelector(q)).display), sels);
   check("clean mode: anchors, routes, markers and ice are forced off", on.hidden >= 4 && hiddenNow.every(d => d === "none"), JSON.stringify(hiddenNow));
-  await A(() => FMG_AGENT.setLayers({ show: ["burgIcons"] }));
-  check("clean mode: a layer redraw does not bring them back", (await A(() => getComputedStyle(document.querySelector("#anchors")).display)) === "none");
+  await A(() => FMG_AGENT.setLayers({ show: ["burgIcons"] })); // a redraw must not bring them back
+  check("clean mode: a layer redraw does not bring them back", (await A(() => getComputedStyle(document.querySelector("#burgIcons [data-group=anchors]")).display)) === "none");
   await A(() => FMG_AGENT.setCleanMode(false));
   const after = await A(sl => sl.map(q => document.querySelector(q) ? getComputedStyle(document.querySelector(q)).display : "missing"), sels);
-  check("clean mode off: every element is back as it was", JSON.stringify(after) === JSON.stringify(shown) && (await A(() => document.querySelector("#anchors").style.display === "")), JSON.stringify([shown, after]));
+  check("clean mode off: every element is back as it was", JSON.stringify(after) === JSON.stringify(shown) && (await A(() => document.querySelector("#burgIcons [data-group=anchors]").style.display === "")), JSON.stringify([shown, after]));
   check("clean mode: an empty list is refused", String(await A(async () => { try { FMG_AGENT.setCleanMode(true, []); return "no error"; } catch (e) { return e.message; } })).includes("empty"));
 }
 
-// ---- globe layout: the map takes exactly its share of the 360 degrees, centred
+// ---- globe layout (D-020): the map takes exactly its share of the 360 degrees, centred
 {
   const real = await A(() => JSON.stringify(options.map.geography.coordinates));
   const info = await A(c => { options.map.geography.coordinates = c; return FMG_AGENT.globeInfo(); }, { latT: 180, latN: 90, lonT: 320, lonW: -160, lonE: 160 });
@@ -720,7 +787,27 @@ await restoreFeatures();
   await A(c => { options.map.geography.coordinates = JSON.parse(c); }, real);
 }
 
-// ---- 3D views: relief and globe open, are read as pictures, and leave settings alone
+// ---- high-fidelity 2D downsampling: fractional Lanczos, transparent edges and no-op short circuit
+{
+  const sampled = await A(async () => {
+    const c = document.createElement("canvas"); c.width = c.height = 27;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "rgba(250,20,10,1)"; ctx.fillRect(0, 0, 13, 27);
+    const base64 = c.toDataURL("image/png").split(",")[1];
+    const same = await FMG_AGENT.downsampleImage({ base64, mimeType: "image/png", width: 27, height: 27, filter: "lanczos3" });
+    const fractional = await FMG_AGENT.downsampleImage({ base64, mimeType: "image/png", width: 18, height: 18, filter: "lanczos3" });
+    const img = new Image(); img.src = `data:image/png;base64,${fractional.base64}`;
+    await img.decode();
+    const out = document.createElement("canvas"); out.width = out.height = 18;
+    const g = out.getContext("2d"); g.drawImage(img, 0, 0);
+    return { noOp: same.reusedSource, fractional: !fractional.reusedSource && fractional.width === 18 && fractional.height === 18,
+      edge: Array.from(g.getImageData(8, 9, 1, 1).data), empty: Array.from(g.getImageData(17, 9, 1, 1).data) };
+  });
+  check("downsample: equal dimensions reuse the source canvas", sampled.noOp);
+  check("downsample: fractional Lanczos3 keeps clean transparent edges", sampled.fractional && sampled.edge[0] > sampled.edge[2] && sampled.edge[3] > 0 && sampled.empty[3] === 0, JSON.stringify(sampled));
+}
+
+// ---- 3D views (D-019): relief and globe open, are read as pictures, and leave the person's settings alone
 {
   const settingsBefore = await A(() => JSON.stringify(options.app.threeD));
   const blockedBefore = session.blockedRequests.size;
@@ -740,8 +827,44 @@ await restoreFeatures();
   }
   check("3d: the person's own 3D settings are put back", (await A(() => JSON.stringify(options.app.threeD))) === settingsBefore);
   check("3d: nothing asked the network (starfield is local)", session.blockedRequests.size === blockedBefore, [...session.blockedRequests].join(","));
-  const bad = await A(async () => { try { await FMG_AGENT.open3d({ mode: "globe", satellite: true }); return "no error"; } catch (e) { return e.message; } });
-  check("3d: satellite on a globe is refused", bad.includes("relief mode"), bad);
+  const planet = await A(() => FMG_AGENT.open3d({
+    mode: "globe", satellite: true, erosion: true, clouds: true, atmosphere: true,
+    sun: { azimuth: 135, altitude: 35 }, textureResolution: 1024
+  }));
+  check("3d globe: satellite and erosion work together", planet.finished === true && planet.settings.satellite === true && planet.settings.erosion === true, JSON.stringify(planet.settings));
+  check("3d globe: actual texture, PBR channels and shells installed", planet.globe.render.texture === "satellite" && planet.globe.render.material === "MeshStandardMaterial" && planet.globe.render.bump && planet.globe.render.roughness && planet.globe.render.atmosphere && planet.globe.render.clouds, JSON.stringify(planet.globe.render));
+  const globeCell = await A(() => FMG_AGENT.globeInfo().centerCell);
+  const validCenter = await A(cell => Number.isInteger(cell) && cell >= 0 && cell < pack.cells.i.length, globeCell);
+  check("3d globe: atmosphere and clouds do not intercept surface picking", validCenter, `cell=${globeCell}`);
+  const planetPng = await A(() => FMG_AGENT.capture3d("png", 90));
+  check("3d globe: PBR satellite capture has pixels", planetPng.data.length > 10000, `${planetPng.data.length} chars`);
+  await A(() => FMG_AGENT.close3d());
+  check("3d globe: satellite/erosion/clouds settings are restored", (await A(() => JSON.stringify(options.app.threeD))) === settingsBefore);
+  const polarRace = await A(async () => {
+    const oldCoords = structuredClone(options.map.geography.coordinates);
+    const OriginalImage = window.Image;
+    let queued = false, loaded = false;
+    window.Image = class DelayedPolarImage extends OriginalImage {
+      set src(value) {
+        if (String(value).startsWith("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHL")) {
+          queued = true;
+          this.addEventListener("load", () => { loaded = true; }, { once: true });
+          setTimeout(() => { super.src = value; }, 250);
+        } else super.src = value;
+      }
+      get src() { return super.src; }
+    };
+    try {
+      options.map.geography.coordinates = { ...oldCoords, latT: 120, latN: 60 };
+      const opened = await FMG_AGENT.open3d({ mode: "globe", textureResolution: 1024 });
+      return { queued, loaded, finished: opened.finished, texture: opened.globe.render.texture };
+    } finally {
+      await FMG_AGENT.close3d();
+      options.map.geography.coordinates = oldCoords;
+      window.Image = OriginalImage;
+    }
+  });
+  check("3d globe: polar image is decoded before map texture is committed", polarRace.queued && polarRace.loaded && polarRace.finished && polarRace.texture === "map", JSON.stringify(polarRace));
   const none = await A(() => { try { FMG_AGENT.capture3d("png", 90); return "no error"; } catch (e) { return e.message; } });
   check("3d: capture without an open view is refused", none.includes("no 3D view"), none);
 
@@ -755,8 +878,325 @@ await restoreFeatures();
   await A(() => FMG_AGENT.close3d());
 }
 
+// ---- merge regression: the native renderer respects wide planetary geography, not a 125-degree sticker
+{
+  const geography = await A(() => structuredClone(options.map.geography.coordinates));
+  try {
+    await A(() => { options.map.geography.coordinates.lonT = 288; });
+    const opened = await A(() => FMG_AGENT.open3d({ mode: "globe", satellite: true, textureResolution: 1024 }));
+    check("288-degree globe: native render completes", opened.finished);
+    const info = await A(() => FMG_AGENT.globeInfo());
+    check("288-degree globe: map keeps its actual longitude span", info.mapLongitudeDegrees === 288 && info.closingOceanDegrees === 72);
+    check("288-degree globe: texture layout wraps across hemispheres", info.mapPx.width === Math.round(info.texturePx.width * 288 / 360)
+      && info.mapPx.x === (info.texturePx.width - info.mapPx.width) / 2);
+    await A(() => FMG_AGENT.view3d({ x: -55, y: 0 }));
+    const west = await A(() => FMG_AGENT.capture3d("png", 95));
+    await A(() => FMG_AGENT.view3d({ x: 55, y: 0 }));
+    const east = await A(() => FMG_AGENT.capture3d("png", 95));
+    check("288-degree globe: west/east views reveal distinct hemispheres", west.data !== east.data && west.data.length > 1000 && east.data.length > 1000);
+    const diptych = await A(() => FMG_AGENT.captureDiptych("png", 95, 55));
+    check("288-degree globe: atlas capture remains a double-width PNG", diptych.width === 2560 && diptych.height === 720
+      && Buffer.from(diptych.data, "base64").subarray(1, 4).toString() === "PNG");
+  } finally {
+    await A(() => FMG_AGENT.close3d());
+    await A(coords => { options.map.geography.coordinates = coords; }, geography);
+  }
+}
+
+// ---- zones, notes & lore (S-026b): 9 commands, hatch fills, XSS stripping
+{
+  const snap = await A(() => FMG_AGENT.exportMap());
+  const sum0 = await A(() => FMG_AGENT.summary());
+  const zoneRows = async () => (await A(() => FMG_AGENT.list("zones", undefined, 5000))).rows;
+
+  const described = await A(() => FMG_AGENT.describe().commands.map(c => c.name));
+  const wanted = ["addZone", "updateZone", "setZoneCells", "removeZone", "regenerateZones", "setNote", "appendNote", "removeNote", "setMapLore"];
+  check("map_commands lists the 9 new commands", wanted.every(w => described.includes(w)), wanted.filter(w => !described.includes(w)).join(",") || "all 9 present");
+
+  // zones over an explicit cells list of the receiver state, then reshape
+  const cellIds = await A(([s]) => [...pack.cells.i.filter(c => pack.cells.h[c] >= 20 && pack.cells.state[c] === s)].slice(0, 8), [receiver.id]); // spread: cells.i is a Uint32Array, page.evaluate would return a plain object otherwise
+  const z = await A(([ids]) => FMG_AGENT.apply("addZone", { name: "Quarantine", type: "Plague", cells: ids, color: "#1a2b3c" }), [cellIds]); // const-ok: smoke colour
+  const zid = z.details?.zone;
+  check("addZone creates over a cells list", z.ok && Number.isInteger(zid) && z.details.cells === cellIds.length, JSON.stringify(z.details));
+  check("zone listed with fill and type", (await zoneRows()).some(r => r.id === zid && r.type === "Plague" && r.color === "#1a2b3c" && r.cells === cellIds.length), JSON.stringify((await zoneRows()).find(r => r.id === zid)));
+  const upd = await A(([i]) => FMG_AGENT.apply("updateZone", { zone: i, name: "Sector 7", color: "url(#hatch2)", hidden: true }), [zid]);
+  check("updateZone renames, recolours to a hatch and hides", upd.ok && upd.details.changed.length === 3 && upd.details.hidden === true && upd.details.color === "url(#hatch2)", upd.details.changed?.join(","));
+  const newIds = await A(([s]) => [...pack.cells.i.filter(c => pack.cells.state[c] === s)].slice(8, 14), [receiver.id]);
+  const setC = await A(([i, ids]) => FMG_AGENT.apply("setZoneCells", { zone: i, cells: ids }), [zid, newIds]);
+  check("setZoneCells replaces coverage", setC.ok && setC.details.cells === newIds.length && setC.details.previousCells === cellIds.length, JSON.stringify(setC.details));
+  const both = await A(async () => { try { await FMG_AGENT.apply("addZone", { name: "x", type: "y", cells: [0], selection: "sel-1" }); return "no error"; } catch (e) { return e.message; } });
+  check("cells and selection together are refused", String(both).includes("exactly one"), String(both).slice(0, 110));
+  const badCell = await A(async ([i]) => { try { await FMG_AGENT.apply("setZoneCells", { zone: i, cells: [-1] }); return "no error"; } catch (e) { return e.message; } }, [zid]);
+  check("out-of-range cells refused before any change", String(badCell).includes("does not exist"), String(badCell).slice(0, 110));
+  const badColor = await A(async ([i]) => { try { await FMG_AGENT.apply("updateZone", { zone: i, color: "url(#hatch99)" }); return "no error"; } catch (e) { return e.message; } }, [zid]);
+  check("a fill outside the 42 hatches is refused with the hatch hint", String(badColor).includes("url(#hatch41)"), String(badColor).slice(0, 130));
+  const rmZone = await A(([i]) => FMG_AGENT.apply("removeZone", { zone: i }), [zid]);
+  check("removeZone deletes", rmZone.ok && !(await zoneRows()).some(r => r.id === zid), rmZone.message);
+  const regen = await A(() => FMG_AGENT.apply("regenerateZones", {}));
+  check("regenerateZones rebuilds the event zones with a warning", regen.ok && regen.warnings.length >= 1, `${regen.details.zones} zones (was ${regen.details.previousZones})`);
+
+  // notes: an XSS payload must be stored clean, never executed
+  const payload = `<script>alert(1)</script><p>Hello <b>world</b></p><img src="x" onerror="alert(2)"><a href="javascript:alert(3)">link</a><iframe src="https://evil.example"></iframe>`;
+  const note = await A(([s, h]) => FMG_AGENT.apply("setNote", { id: `state:${s}`, html: h }), [receiver.id, payload]);
+  check("setNote strips unsafe markup and warns", note.ok && note.details.sanitized === true && note.details.characters < payload.length && note.warnings?.length >= 1, JSON.stringify(note.details));
+  const noteRows = async () => (await A(() => FMG_AGENT.list("notes", undefined, 5000))).rows;
+  const myNote = (await noteRows()).find(r => r.id === `state:${receiver.id}`);
+  check("stored note holds no XSS but keeps safe tags", Boolean(myNote) && !myNote.note.includes("<script") && !myNote.note.includes("onerror") && !myNote.note.includes("javascript:") && !myNote.note.includes("<iframe") && myNote.note.includes("<b>world</b>"), myNote?.note);
+  const app = await A(([s]) => FMG_AGENT.apply("appendNote", { entity_type: "state", entity_id: s, html: "<p>Afterword</p>" }), [receiver.id]);
+  check("appendNote grows the note", app.ok && app.details.characters === note.details.characters + "<p>Afterword</p>".length, `chars=${app.details.characters}`);
+  const milRow = (await A(() => FMG_AGENT.list("military", undefined, 1))).rows[0];
+  const regNote = await A(([s, r]) => FMG_AGENT.apply("setNote", { entity_type: "regiment", entity_id: s, entity_sub: r, html: "<p>Muster roll.</p>" }), [milRow.state, milRow.regimentId]);
+  check("regiment note via entity_type + entity_sub uses the composite key", regNote.ok && regNote.details.key === `regiment:${milRow.state}-${milRow.regimentId}`, regNote.details?.key);
+  const regRm = await A(([k]) => FMG_AGENT.apply("removeNote", { id: k }), [regNote.details.key]);
+  check("removeNote deletes by key", regRm.ok && regRm.details.had === true);
+  const noSub = await A(async ([s]) => { try { await FMG_AGENT.apply("setNote", { entity_type: "regiment", entity_id: s, html: "<p>x</p>" }); return "no error"; } catch (e) { return e.message; } }, [milRow.state]);
+  check("a regiment note without entity_sub is refused", String(noSub).includes("entity_sub"), String(noSub).slice(0, 110));
+  const noEnt = await A(async () => { try { await FMG_AGENT.apply("setNote", { id: "culture:999", html: "<p>x</p>" }); return "no error"; } catch (e) { return e.message; } });
+  check("a note on a missing entity is refused", String(noEnt).includes("does not exist"), String(noEnt).slice(0, 110));
+  const cleanNote = await A(([s]) => FMG_AGENT.apply("setNote", { id: `state:${s}`, html: "<p>Clean.</p>" }), [receiver.id]);
+  check("clean markup is stored untouched without warning", cleanNote.ok && cleanNote.details.sanitized === false && !cleanNote.warnings, JSON.stringify(cleanNote.details));
+
+  // lore: calendar and world texts
+  const lore = await A(() => FMG_AGENT.apply("setMapLore", { name: "Smoke World", year: 525, era: "Water Era", description: "The world of the smoke test." }));
+  check("setMapLore sets name, year, era and derives the short form", lore.ok && lore.details.name === "Smoke World" && lore.details.year === 525 && lore.details.era === "Water Era" && lore.details.eraShort === "WE", JSON.stringify(lore.details.changed));
+  const sum2 = await A(() => FMG_AGENT.summary());
+  check("map_summary carries lore and the zone/note/regiment counts", sum2.lore.year === 525 && sum2.lore.era === "Water Era" && typeof sum2.counts.zonesCount === "number" && typeof sum2.counts.notesCount === "number" && typeof sum2.counts.regimentsCount === "number", `notes=${sum2.counts.notesCount}, zones=${sum2.counts.zonesCount}, regiments=${sum2.counts.regimentsCount}`);
+  const empty = await A(async () => { try { await FMG_AGENT.apply("setMapLore", {}); return "no error"; } catch (e) { return e.message; } });
+  check("setMapLore without any field is refused", String(empty).includes("at least one"), String(empty).slice(0, 110));
+
+  // undoability: reloading the snapshot undoes the whole block
+  await A(t => FMG_AGENT.importMap(t), snap);
+  const end = await A(() => FMG_AGENT.summary());
+  const endNotes = await noteRows();
+  check("reload undoes zones, notes and lore", end.lore.year === sum0.lore.year && end.lore.name === sum0.lore.name && !endNotes.some(r => r.id === `state:${receiver.id}` || r.note.includes("Afterword")) && end.counts.zonesCount === sum0.counts.zonesCount, `lore=${end.lore.name}/${end.lore.year}`);
+}
+
+
+// ---- styles, burg architecture & route/river topology (S-026c): 7 commands, presets, undo
+{
+  const snap = await A(() => FMG_AGENT.exportMap());
+  const net0 = await A(() => ({ routes: pack.routes.length, rivers: pack.rivers.length }));
+  const described = await A(() => FMG_AGENT.describe().commands.map(c => c.name));
+  const wanted = ["applyStylePreset", "setStyle", "updateBurg", "updateRoute", "splitRoute", "joinRoutes", "updateRiver"];
+  check("map_commands lists the 7 new commands", wanted.every(w => described.includes(w)), wanted.filter(w => !described.includes(w)).join(",") || "all 7 present");
+
+  // map_list kind=styles: the preset and the configuration setStyle addresses
+  const styleList = await A(() => FMG_AGENT.list("styles", undefined, 1000));
+  const oceanFill0 = await A(() => styles.ocean.groups.base.attrs.fill);
+  check("map_list styles returns the preset and the configuration", styleList.preset === "default" && styleList.systemPresets.length === 15 && styleList.rows.some(r => r.name === "ocean" && r.config?.groups), `preset=${styleList.preset}, rows=${styleList.total}`);
+
+  // applyStylePreset: a built-in theme replaces the whole look
+  const preset = await A(() => FMG_AGENT.apply("applyStylePreset", { preset: "ink" }));
+  const oceanFill1 = await A(() => styles.ocean.groups.base.attrs.fill);
+  check("applyStylePreset applies a built-in theme", preset.ok && preset.details.preset === "ink" && oceanFill1 !== oceanFill0 && (await A(() => options.map.style.preset)) === "ink", JSON.stringify(preset.details));
+  check("map_list styles follows the applied preset", (await A(() => FMG_AGENT.list("styles", undefined, 1000))).preset === "ink");
+  check("the applied style reached the SVG", await A(() => document.querySelector('[data-layer="ocean"] [data-group="base"]').getAttribute("fill") === styles.ocean.groups.base.attrs.fill));
+  const badPreset = await A(async () => { try { await FMG_AGENT.apply("applyStylePreset", { preset: "no-such-theme" }); return "no error"; } catch (e) { return e.message; } });
+  check("an unknown preset is refused with the available names", badPreset.includes("Available"), badPreset.slice(0, 90));
+  check("a refused preset is a clean failure", (await A(() => FMG_AGENT.lastFailureLeftMapDirty())) === false);
+
+  // setStyle: one value at a time, null unsets
+  const sv = await A(() => FMG_AGENT.apply("setStyle", { path: "ocean.groups.base.attrs.fill", value: "#336699" }));
+  check("setStyle writes one value and redraws it", sv.ok && sv.changed === 1 && (await A(() => styles.ocean.groups.base.attrs.fill)) === "#336699" && (await A(() => document.querySelector('[data-layer="ocean"] [data-group="base"]').getAttribute("fill"))) === "#336699", JSON.stringify(sv.details)); // const-ok: smoke colour
+  const svNum = await A(() => FMG_AGENT.apply("setStyle", { path: "relief.options.density", value: 0.75 }));
+  check("setStyle accepts numbers for options", svNum.ok && (await A(() => styles.relief.options.density)) === 0.75, JSON.stringify(svNum.details));
+  const svNull = await A(() => FMG_AGENT.apply("setStyle", { path: "ocean.groups.base.attrs.fill", value: null }));
+  check("setStyle null unsets an attribute", svNull.ok && (await A(() => styles.ocean.groups.base.attrs.fill)) === null && (await A(() => document.querySelector('[data-layer="ocean"] [data-group="base"]').getAttribute("fill"))) === null);
+  const svBad = await A(async () => { try { await FMG_AGENT.apply("setStyle", { path: "ocean.groups.base.attrs.nope", value: 1 }); return "no error"; } catch (e) { return e.message; } });
+  check("setStyle refuses an unknown attribute cleanly", svBad !== "no error" && (await A(() => FMG_AGENT.lastFailureLeftMapDirty())) === false, svBad.slice(0, 90));
+  const svType = await A(async () => { try { await FMG_AGENT.apply("setStyle", { path: "relief.options.density", value: {} }); return "no error"; } catch (e) { return e.message; } });
+  check("setStyle refuses an object value", String(svType).includes("text, a number"), String(svType).slice(0, 90));
+  const svMissing = await A(async () => { try { await FMG_AGENT.apply("setStyle", { path: "relief.options.density" }); return "no error"; } catch (e) { return e.message; } });
+  check("setStyle without a value is refused with the null hint", String(svMissing).includes("null unsets"), String(svMissing).slice(0, 90));
+
+  // updateBurg: the published editBurg under the plan's name, with map_list attributes
+  const target = await A(() => pack.burgs.find(x => x.i && !x.removed && !x.capital && !x.walls && !pack.markets?.some(m => m.centerBurgId === x.i))?.i);
+  const ub = await A(([id]) => FMG_AGENT.apply("updateBurg", { burg: id, population: 9000, walls: true }), [target]);
+  const row = (await A(() => FMG_AGENT.list("burgs", undefined, 1000))).rows.find(r => r.id === target);
+  check("updateBurg sets population and architecture", ub.ok && ub.changed === 2 && Math.abs(row.population - 9000) <= 5 && row.walls === true && typeof row.citadel === "boolean" && typeof row.port === "boolean", JSON.stringify({ details: ub.details, row }));
+  check("map_list burgs carries the architecture attributes", ["temple", "plaza", "shanty", "type", "group"].every(k => k in row), JSON.stringify(row));
+
+  // mergeStates accepts the plan's asProvinces spelling; both spellings together are refused
+  const sums = await A(() => FMG_AGENT.summary());
+  const big = sums.states.filter(s => s.cells >= 60);
+  const pair = big.flatMap(a => a.neighbours.map(n => big.find(s => s.id === n)).filter(Boolean).map(b => [a, b])).sort((p, q) => Math.min(q[0].cells, q[1].cells) - Math.min(p[0].cells, p[1].cells))[0] ?? [];
+  const [into, away] = pair;
+  check("found neighbouring states for the alias merge", Boolean(into && away), `${into?.id} ${away?.id}`);
+  const aliasMerge = await A(([a, b]) => FMG_AGENT.apply("mergeStates", { states: [a], into: b, asProvinces: true }), [away.id, into.id]);
+  check("mergeStates asProvinces: true keeps the merged state as a province", aliasMerge.ok && aliasMerge.details.keptAsProvinces === true, JSON.stringify(aliasMerge.details));
+  const both = await A(async ([a, b]) => { try { await FMG_AGENT.apply("mergeStates", { states: [a], into: b, asProvinces: true, as_provinces: true }); return "no error"; } catch (e) { return e.message; } }, [away.id, into.id]);
+  check("asProvinces and as_provinces together are refused", both.includes("not both"), both.slice(0, 80));
+
+  // routes: create, edit, split, join back, with the shared redraw table
+  const pts = await A(() => {
+    const cells = pack.cells.i.filter(i => pack.cells.h[i] >= 20 && !pack.cells.burg[i]);
+    return [0, 40, 80, 120, 160].map(n => pack.cells.p[cells[n]]);
+  });
+  const rt = await A(([p]) => FMG_AGENT.apply("addRoute", { path: p, group: "trails", name: "S-026c Trail" }), [pts]);
+  const rid = rt.details.route;
+  const ur = await A(([id]) => FMG_AGENT.apply("updateRoute", { route: id, name: "Renamed Trail", locked: true }), [rid]);
+  const edited = await A(([id]) => { const r = pack.routes.find(x => x.i === id); return { name: r.name, lock: r.lock }; }, [rid]);
+  check("updateRoute renames and locks", ur.ok && ur.changed === 2 && edited.name === "Renamed Trail" && edited.lock === true, JSON.stringify({ details: ur.details, edited }));
+  const noChange = await A(async ([id]) => { try { await FMG_AGENT.apply("updateRoute", { route: id }); return "no error"; } catch (e) { return e.message; } }, [rid]);
+  check("updateRoute without a field is refused", noChange.includes("at least one"), noChange.slice(0, 80));
+  const sp = await A(([id]) => FMG_AGENT.apply("splitRoute", { route: id, point: 2 }), [rid]);
+  const halves = await A(([a, b]) => [pack.routes.find(x => x.i === a)?.points.length, pack.routes.find(x => x.i === b)?.points.length], [rid, sp.details.newRoute]);
+  check("splitRoute cuts at the inner point", sp.ok && Number.isInteger(sp.details.newRoute) && halves[0] === 3 && halves[1] === 3, JSON.stringify({ details: sp.details, halves }));
+  const edge = await A(async ([id]) => { try { await FMG_AGENT.apply("splitRoute", { route: id, point: 0 }); return "no error"; } catch (e) { return e.message; } }, [rid]);
+  check("splitRoute refuses an endpoint", edge.includes("inner point"), edge.slice(0, 80));
+  const jr = await A(([a, b]) => FMG_AGENT.apply("joinRoutes", { route: a, other: b }), [rid, sp.details.newRoute]);
+  const rejoined = await A(([id, gone]) => ({ points: pack.routes.find(x => x.i === id)?.points.length, otherStays: pack.routes.some(x => x.i === gone) }), [rid, sp.details.newRoute]);
+  check("joinRoutes rejoins the two halves", jr.ok && rejoined.points === 5 && !rejoined.otherStays, JSON.stringify({ details: jr.details, rejoined }));
+  const selfJoin = await A(async ([id]) => { try { await FMG_AGENT.apply("joinRoutes", { route: id, other: id }); return "no error"; } catch (e) { return e.message; } }, [rid]);
+  check("joinRoutes refuses joining a route to itself", selfJoin.includes("itself"), selfJoin.slice(0, 80));
+  const road = await A(([p]) => FMG_AGENT.apply("addRoute", { path: p, group: "roads", name: "S-026c Road" }), [[pts[0], pts[4]]]);
+  const cross = await A(async ([a, b]) => { try { await FMG_AGENT.apply("joinRoutes", { route: a, other: b }); return "no error"; } catch (e) { return e.message; } }, [rid, road.details.route]);
+  check("joinRoutes refuses different groups", cross.includes("different groups"), cross.slice(0, 80));
+  const lone = await A(() => {
+    const cells = pack.cells.i.filter(i => pack.cells.h[i] >= 20 && !pack.cells.burg[i]);
+    return FMG_AGENT.apply("addRoute", { path: [pack.cells.p[cells[200]], pack.cells.p[cells[220]]], group: "trails", name: "S-026c Lone" });
+  });
+  const none = await A(async ([a, b]) => { try { await FMG_AGENT.apply("joinRoutes", { route: a, other: b }); return "no error"; } catch (e) { return e.message; } }, [rid, lone.details.route]);
+  check("joinRoutes refuses routes that share no endpoint", none.includes("no endpoint"), none.slice(0, 80));
+
+  // rivers: edit name, type, width and parent; a compound failure is flagged for the server to restore
+  const rivers = await A(() => FMG_AGENT.list("rivers", undefined, 1000).rows);
+  const main = rivers.find(r => r.parent === r.id) ?? rivers[0];
+  const uw = await A(([id]) => FMG_AGENT.apply("updateRiver", { river: id, name: "Test Flow", type: "Creek", sourceWidth: 2.5, widthFactor: 1.1 }), [main.id]);
+  const listedRiver = (await A(() => FMG_AGENT.list("rivers", undefined, 1000))).rows.find(r => r.id === main.id);
+  check("updateRiver changes name, type and width", uw.ok && uw.changed === 4 && listedRiver.name === "Test Flow" && listedRiver.type === "Creek", JSON.stringify({ details: uw.details, listedRiver }));
+  const tributary = rivers.find(r => r.parent && r.parent !== r.id);
+  if (tributary) {
+    const cycle = await A(async ([p, t]) => { try { await FMG_AGENT.apply("updateRiver", { river: p, name: "Bad Compound", parent: t }); return "no error"; } catch (e) { return e.message; } }, [tributary.parent, tributary.id]);
+    check("updateRiver refuses a parent that flows into it", cycle.includes("mainstem"), cycle.slice(0, 90));
+    check("the failed compound edit is flagged dirty for the server to restore", (await A(() => FMG_AGENT.lastFailureLeftMapDirty())) === true);
+  } else check("updateRiver cycle check (no tributary on this map to probe)", true);
+  const mainstem = await A(([id]) => FMG_AGENT.apply("updateRiver", { river: id, parent: id }), [main.id]);
+  check("updateRiver parent = own id makes it a mainstem", mainstem.ok && (await A(([id]) => pack.rivers.find(r => r.i === id).parent === id, [main.id])), JSON.stringify(mainstem.details));
+  const noRiver = await A(async () => { try { await FMG_AGENT.apply("updateRiver", { river: 9999, name: "Ghost" }); return "no error"; } catch (e) { return e.message; } });
+  check("updateRiver refuses an unknown river cleanly", noRiver.includes("does not exist") && (await A(() => FMG_AGENT.lastFailureLeftMapDirty())) === false, noRiver.slice(0, 80));
+
+  // undoability: reloading the snapshot undoes the whole block, styles included
+  await A(t => FMG_AGENT.importMap(t), snap);
+  const end = await A(() => ({ preset: options.map.style.preset, fill: styles.ocean.groups.base.attrs.fill, routes: pack.routes.length, rivers: pack.rivers.length, trail: pack.routes.some(r => r.name === "Renamed Trail"), flow: pack.rivers.some(r => r.name === "Test Flow") }));
+  check("reload undoes styles, burg, routes and rivers", end.preset === "default" && end.fill === oceanFill0 && !end.trail && !end.flow && end.routes === net0.routes && end.rivers === net0.rivers, JSON.stringify({ end, net0 }));
+}
+
+
+// ---- TASK-09: regional vector loupe, non-destructive atlas, resample + snapshot undo/rollback
+{
+  const inset = { x0: 400, y0: 180, x1: 720, y1: 420, title: "Regional atlas <not HTML>" };
+  const snap = await A(() => FMG_AGENT.exportMap());
+  const probe = () => A(() => JSON.stringify({ camera: FMG_AGENT.camera(), layers: FMG_AGENT.layers().active,
+    geography: options.map.geography, units: options.map.units, h: Array.from(pack.cells.h),
+    states: pack.states, burgs: pack.burgs, routes: pack.routes, rivers: pack.rivers }));
+  const before = await probe();
+  const pic = await A(i => FMG_AGENT.renderInset({ inset: i, width: 1280, height: 720 }), inset);
+  check("TASK-09 atlas is PNG at requested dimensions", pic.mimeType === "image/png" && pic.width === 1280 && pic.height === 720 && Buffer.from(pic.data, "base64").subarray(1, 4).toString() === "PNG");
+  check("TASK-09 loupe keeps exact aspect ratio", Math.abs(pic.cartouche.width / pic.cartouche.height - 4 / 3) < 1e-10);
+  check("TASK-09 atlas leaves camera, layers and map data intact", await probe() === before);
+  const plain = await A(() => FMG_AGENT.renderRegionLoupe({ x0: 0, y0: 0, x1: 1280, y1: 720 }, 1280, 720));
+  check("TASK-09 cartouche changes the output pixels", plain.split(",")[1] !== pic.data);
+  for (const bad of [{ ...inset, x1: 9999 }, { ...inset, x1: 400 }, { ...inset, x0: NaN }, { ...inset, cover: 1 }]) {
+    const refused = await A(async i => { try { await FMG_AGENT.renderInset({ inset: i, width: 1280, height: 720 }); return false; } catch { return true; } }, bad);
+    check("TASK-09 invalid inset rejected", refused);
+  }
+  const noConfirm = await A(async i => { try { await FMG_AGENT.apply("createSubmap", i); return false; } catch { return !FMG_AGENT.lastFailureLeftMapDirty(); } }, { x0: 400, y0: 180, x1: 720, y1: 420 });
+  check("TASK-09 resampling requires explicit confirmation before mutation", noConfirm && await probe() === before);
+  const args = { x0: 320, y0: 180, x1: 960, y1: 540, confirmDestructiveResample: true };
+  const child = await A(p => FMG_AGENT.apply("createSubmap", p), args);
+  check("TASK-09 native resampling runs", child.ok && child.details.scale === 2 && await probe() !== before);
+  await A(t => FMG_AGENT.importMap(t), snap);
+  // import resets the camera as usual: compare the persisted geography and entities, not camera framing.
+  const restored = JSON.parse(await probe());
+  const original = JSON.parse(before);
+  delete restored.camera; delete original.camera;
+  check("TASK-09 snapshot undo restores exact parent geography and entities", JSON.stringify(restored) === JSON.stringify(original));
+  await A(() => { window.__task09Generate = Grid.generate; Grid.generate = () => { throw new Error("TASK-09 resample crash"); }; });
+  const failed = await A(async p => { try { await FMG_AGENT.apply("createSubmap", p); return "no error"; } catch (e) { return `${e.message}:${FMG_AGENT.lastFailureLeftMapDirty()}`; } }, args);
+  check("TASK-09 partial resample failure is marked dirty for rollback", failed.includes("TASK-09 resample crash:true"));
+  await A(() => { Grid.generate = window.__task09Generate; delete window.__task09Generate; });
+  await A(t => FMG_AGENT.importMap(t), snap);
+  const rolled = JSON.parse(await probe()); delete rolled.camera;
+  check("TASK-09 rollback snapshot restores parent after partial failure", JSON.stringify(rolled) === JSON.stringify(original));
+  const download = await session.captureDownload(() => session.call("exportPicture", { format: "png", resolution: 1, inset }), "smoke-atlas");
+  check("TASK-09 native bridge exportPicture downloads atlas", download.bytes > 1000);
+}
+
+// ---- TASK-10: native contour/hachure paths, partial styles, snapshot undo and rollback
+{
+  const snap = await A(() => FMG_AGENT.exportMap());
+  const before = await A(() => JSON.stringify({ styles, h: Array.from(grid.cells.h), states: pack.states }));
+  const preset = await A(() => FMG_AGENT.setLayers({ preset: "topographic" }));
+  const expected = ["heightmap", "rivers", "relief", "routes", "burgIcons", "labels", "scaleBar"];
+  check("TASK-10 topographic preset has the seven real layer ids", expected.every(id => preset.active.includes(id)) && preset.active.filter(id => preset.available.includes(id)).length === 7);
+  const topo = await A(() => FMG_AGENT.apply("setTopography", { scheme: "natural", contours: true, contourInterval: 8, hachures: true, isolineFills: true }));
+  const paths = await A(() => ({ contours: document.querySelectorAll("#terrs .heightmap-contours path[d]").length, hachures: document.querySelectorAll("#terrs .heightmap-hachures path[d]").length, fills: document.querySelectorAll("#landHeights > path[data-height]").length }));
+  check("TASK-10 native contour, hachure and fill paths are drawn", topo.ok && paths.contours > 0 && paths.hachures > 0 && paths.fills > 0, JSON.stringify(paths));
+  const preserved = await A(() => JSON.stringify({ opacity: styles.heightmap.groups.landHeights.attrs, ocean: styles.heightmap.groups.oceanHeights, relief: styles.relief, h: Array.from(grid.cells.h), states: pack.states }));
+  await A(() => FMG_AGENT.apply("setTopography", { isolineFills: false, terracing: 5 }));
+  check("TASK-10 line-only mode removes colored land fills", await A(() => !document.querySelector("#landHeights > path[data-height]") && styles.heightmap.groups.landHeights.options.contours.mode === "only"));
+  check("TASK-10 partial style update preserves unrelated options and terrain", preserved === await A(() => JSON.stringify({ opacity: styles.heightmap.groups.landHeights.attrs, ocean: styles.heightmap.groups.oceanHeights, relief: styles.relief, h: Array.from(grid.cells.h), states: pack.states })));
+  const current = await A(() => JSON.stringify(styles.heightmap));
+  for (const bad of [{}, { contours: false, hachures: false, isolineFills: false }, { contourInterval: 1 }, { scheme: "earth" }, { scheme: "natural", contourInterval: 21 }]) {
+    const refused = await A(async p => { try { await FMG_AGENT.apply("setTopography", p); return false; } catch { return !FMG_AGENT.lastFailureLeftMapDirty(); } }, bad);
+    check("TASK-10 invalid topography is refused atomically", refused && await A(() => JSON.stringify(styles.heightmap)) === current);
+  }
+  const land0 = await A(() => JSON.stringify(styles.heightmap.groups.landHeights));
+  await A(() => FMG_AGENT.apply("setTopography", { target: "ocean", scheme: "light", contours: true, contourInterval: 4 }));
+  check("TASK-10 ocean target enables ocean rendering without changing land", await A(() => styles.heightmap.groups.oceanHeights.options.render && styles.heightmap.groups.oceanHeights.options.contours.interval === 4 && !!document.querySelector("#oceanHeights .heightmap-contours path")) && land0 === await A(() => JSON.stringify(styles.heightmap.groups.landHeights)));
+  await A(() => { window.__task10Draw = Layers.draw; Layers.draw = function () { Layers.draw = window.__task10Draw; delete window.__task10Draw; throw new Error("TASK-10 draw crash"); }; });
+  const failure = await A(async () => { try { await FMG_AGENT.apply("setTopography", { scheme: "olive" }); return false; } catch { return FMG_AGENT.lastFailureLeftMapDirty(); } });
+  check("TASK-10 post-mutation render failure is marked dirty", failure);
+  await A(t => FMG_AGENT.importMap(t), snap);
+  check("TASK-10 snapshot rollback restores exact styles, terrain and states", before === await A(() => JSON.stringify({ styles, h: Array.from(grid.cells.h), states: pack.states })));
+}
+
+// ---- public bridge capabilities: text map, action menu, interface and pinned settings
+{
+  const drawn = await A(() => FMG_AGENT.textMap({ cols: 32, rows: 12 }));
+  check("text map has requested dimensions and a state key", drawn.rows.length === 12 && drawn.rows.every(row => row.length === 32) && Object.keys(drawn.key).length > 0);
+  const actions = await A(() => FMG_AGENT.menuList({ query: "regenerateBurgs" }));
+  check("Azgaar's action menu lists regenerators", actions.commands.some(cmd => cmd.id === "regenerateBurgs"));
+  const forbidden = await A(async () => { try { await FMG_AGENT.menuRun({ id: "newMap" }); return "allowed"; } catch (e) { return e.message; } });
+  check("menu refuses replacing a map outside map_file", forbidden.includes("map_file new"));
+  const controls = await A(() => FMG_AGENT.uiList({ scope: "page", query: "points", hidden: true }));
+  check("interface controls can be found without opening a dialog", controls.total > 0 && controls.controls.length > 0);
+  const settings = await A(() => FMG_AGENT.getSettings({ section: "generation" }));
+  check("generation settings include valid choices", settings.generation.states.limit > 0 && settings.choices.templates.length > 3);
+  const refused = await A(() => { try { FMG_AGENT.setSettings({ values: { states: { limit: -1 } } }); return "allowed"; } catch (e) { return e.message; } });
+  check("invalid generation settings do not change the map", refused.includes("nothing changed"));
+  const choices = await A(() => FMG_AGENT.layers());
+  check("native layer presets are discoverable", choices.presets.includes("political") && choices.presets.includes("physical"));
+}
+
+{
+  // map_ui by text: a guess between equally good candidates must be reported, a clear match must stay silent.
+  await A(() => {
+    const box = document.createElement("div");
+    box.id = "smokeUiFixture";
+    window.__smokeClicked = [];
+    for (const text of ["Zzriver width", "Zzriver length", "Zztwin", "Zztwin", "Zzunique control"]) {
+      const b = document.createElement("button");
+      b.textContent = text;
+      b.style.cssText = "display:block;width:120px;height:20px";
+      b.addEventListener("click", () => window.__smokeClicked.push(text));
+      box.appendChild(b);
+    }
+    document.body.appendChild(box);
+  });
+  const partial = await A(() => FMG_AGENT.uiClick({ text: "zzriver", scope: "page" }));
+  check("map_ui text: a partial match shared by two controls is reported", partial.alsoMatched?.length === 1 && partial.alsoMatched[0].label === "Zzriver length" && /zzriver/.test(partial.warning ?? ""), JSON.stringify(partial.alsoMatched));
+  const twin = await A(() => FMG_AGENT.uiClick({ text: "Zztwin", scope: "page" }));
+  check("map_ui text: two identical controls are reported", twin.alsoMatched?.length === 1 && twin.clicked.label === "Zztwin");
+  const clear = await A(() => FMG_AGENT.uiClick({ text: "zzunique", scope: "page" }));
+  check("map_ui text: a clear match stays silent", clear.alsoMatched === undefined && clear.warning === undefined);
+  const clicked = await A(() => window.__smokeClicked);
+  check("map_ui text: the same control as before is still the one clicked", clicked.join("|") === "Zzriver width|Zztwin|Zzunique control", clicked.join("|"));
+  await A(() => document.getElementById("smokeUiFixture")?.remove());
+}
+
 check("no JavaScript errors in the page", errors.length === 0, errors.slice(0, 3).join(" | "));
 await browser.close(); server.close();
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
 process.exit(failures ? 1 : 0);
-

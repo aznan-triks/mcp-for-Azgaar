@@ -1,12 +1,30 @@
+import { layersFor } from "@/controllers/assistant/redraw";
 import type { Marker } from "@/generators/markers-generator";
 import type { River } from "@/generators/river-generator";
-import type { Route } from "@/generators/routes-generator";
+import { mergeRoutePoints, type Route } from "@/generators/routes-generator";
 import { config } from "../config";
 import { cellAt, round } from "../geometry";
 import { hiddenLayerNote } from "../layers";
 import { AgentError, type Command, type CommandResult, type Params } from "../types";
 
 const ROUTE_GROUPS = ["roads", "trails", "searoutes"] as const;
+
+function liveRoute(id: number): Route {
+  const route = pack.routes.find(r => r.i === id);
+  if (!route) throw new AgentError(`Route ${id} does not exist`);
+  return route;
+}
+
+function liveRiver(id: number): River {
+  const river = pack.rivers.find(r => r.i === id);
+  if (!river) throw new AgentError(`River ${id} does not exist`);
+  return river;
+}
+
+/** Redraw what a route or river change touches, from the redraw table shared with the assistant. */
+function redrawNetwork(type: "route" | "river", id: number): void {
+  Layers.draw(...layersFor([{ key: `${type}:${id}`, field: "" }]));
+}
 
 const addMarker: Command = {
   name: "addMarker",
@@ -48,7 +66,7 @@ const removeMarker: Command = {
     const id = p.marker as number;
     const marker = pack.markers.find(m => m.i === id);
     if (!marker) throw new AgentError(`Marker ${id} does not exist`);
-    Markers.deleteMarker(id);
+    Markers.remove(id);
     Layers.draw("markers");
     return { ok: true, message: `Marker ${id} "${marker.name}" removed`, changed: 1 };
   }
@@ -110,7 +128,7 @@ const removeRoute: Command = {
     const id = p.route as number;
     const route = pack.routes.find(r => r.i === id);
     if (!route) throw new AgentError(`Route ${id} does not exist`);
-    Routes.remove(route);
+    Routes.remove(id);
     Layers.draw("routes");
     return { ok: true, message: `Route ${id} removed`, changed: 1 };
   }
@@ -244,4 +262,167 @@ const removeRiver: Command = {
   }
 };
 
-export const featureCommands: Command[] = [addMarker, removeMarker, addRoute, removeRoute, addRiver, removeRiver];
+const updateRoute: Command = {
+  name: "updateRoute",
+  description:
+    "Change a route's name, group (roads, trails or searoutes) and/or lock (a locked route survives map regeneration). Give at least one field.",
+  params: {
+    route: { type: "integer", required: true, min: 0, description: "Route id (see map_list kind=routes)" },
+    name: { type: "string", description: "New name" },
+    group: { type: "string", enum: ROUTE_GROUPS, description: "Move the route to another group" },
+    locked: { type: "boolean", description: "Lock (true) or unlock (false) the route" }
+  },
+  run(p: Params): CommandResult {
+    const id = p.route as number;
+    const route = liveRoute(id);
+    const changed: string[] = [];
+    if (p.name === undefined && p.group === undefined && p.locked === undefined)
+      throw new AgentError("updateRoute: give at least one of name, group or locked flag to change");
+    if (typeof p.name === "string") {
+      Routes.rename(id, p.name);
+      changed.push("name");
+    }
+    if (typeof p.group === "string") {
+      Routes.setGroup(id, p.group);
+      changed.push("group");
+    }
+    if (p.locked !== undefined) {
+      Routes.setLocked(id, p.locked === true);
+      changed.push("locked");
+    }
+    redrawNetwork("route", id);
+    return {
+      ok: true,
+      message: `Route ${id} updated (${changed.join(", ")})`,
+      changed: changed.length,
+      details: { route: id, changed, name: route.name ?? null, group: route.group, locked: Boolean(route.lock) }
+    };
+  }
+};
+
+const splitRoute: Command = {
+  name: "splitRoute",
+  description:
+    "Cut a route at one of its inner points: the route ends there and a new route of the same group goes on from the cut. Points are counted from 0.",
+  params: {
+    route: { type: "integer", required: true, min: 0, description: "Route id (see map_list kind=routes)" },
+    point: {
+      type: "integer",
+      required: true,
+      description: "Index of the inner point to cut at (points are counted from 0)"
+    }
+  },
+  run(p: Params): CommandResult {
+    const id = p.route as number;
+    const route = liveRoute(id);
+    const point = p.point as number;
+    const before = route.points.length;
+    if (!Number.isInteger(point) || point < 1 || point > before - 2)
+      throw new AgentError(
+        `splitRoute: point ${point} is not an inner point of route ${id}; its ${before} points are counted from 0`
+      );
+    const newRoute = Routes.split(id, point);
+    redrawNetwork("route", id);
+    return {
+      ok: true,
+      message: `Route ${id} split at point ${point}: route ${newRoute} continues it`,
+      changed: 1,
+      details: { route: id, newRoute, at: point, pointsBefore: before }
+    };
+  }
+};
+
+const joinRoutes: Command = {
+  name: "joinRoutes",
+  description:
+    "Join two routes of the same group that meet at an endpoint into one continuous route; `other` is removed. The result starts where one started and ends where the other ended.",
+  params: {
+    route: { type: "integer", required: true, min: 0, description: "Route that keeps the joined line" },
+    other: { type: "integer", required: true, min: 0, description: "Route to join into it (removed afterwards)" }
+  },
+  run(p: Params): CommandResult {
+    const id = p.route as number;
+    const otherId = p.other as number;
+    const route = liveRoute(id);
+    const other = liveRoute(otherId);
+    if (id === otherId) throw new AgentError("joinRoutes: a route cannot join itself");
+    if (route.group !== other.group)
+      throw new AgentError(
+        `joinRoutes: routes ${id} and ${otherId} are in different groups (${route.group} / ${other.group})`
+      );
+    if (!mergeRoutePoints(route.points, other.points))
+      throw new AgentError(`joinRoutes: routes ${id} and ${otherId} share no endpoint to meet at`);
+    Routes.join(id, otherId);
+    redrawNetwork("route", id);
+    return {
+      ok: true,
+      message: `Route ${otherId} joined into route ${id}`,
+      changed: 1,
+      details: { route: id, removed: otherId, points: route.points.length }
+    };
+  }
+};
+
+const updateRiver: Command = {
+  name: "updateRiver",
+  description:
+    "Change a river's name, type (a free label such as River, Creek or Fork), mainstem and/or width (source width and width factor). Give at least one field. parent: the river this one flows into, or its own id to make it a mainstem.",
+  params: {
+    river: { type: "integer", required: true, min: 1, description: "River id (see map_list kind=rivers)" },
+    name: { type: "string", description: "New name" },
+    type: { type: "string", description: "Free type label such as River, Creek or Fork" },
+    parent: { type: "integer", min: 1, description: "River it is a tributary of (its own id = mainstem)" },
+    sourceWidth: { type: "number", min: 0, description: "Width at the source, in km (the mouth width follows)" },
+    widthFactor: { type: "number", min: 0, description: "How fast the river widens downstream" }
+  },
+  run(p: Params): CommandResult {
+    const id = p.river as number;
+    const river = liveRiver(id);
+    const wanted = ["name", "type", "parent", "sourceWidth", "widthFactor"].filter(f => p[f] !== undefined);
+    if (!wanted.length)
+      throw new AgentError(
+        "updateRiver: give at least one of name, type, parent, sourceWidth or widthFactor to change"
+      );
+    if (p.parent !== undefined && !pack.rivers.some(r => r.i === p.parent))
+      throw new AgentError(`updateRiver: river ${p.parent} does not exist`);
+    if (typeof p.name === "string") Rivers.rename(id, p.name);
+    if (typeof p.type === "string") Rivers.setType(id, p.type);
+    if (p.parent !== undefined) Rivers.setParent(id, p.parent as number);
+    if (p.sourceWidth !== undefined || p.widthFactor !== undefined) {
+      // setWidth takes both values: the one not given keeps its current value
+      Rivers.setWidth(
+        id,
+        (p.sourceWidth as number | undefined) ?? river.sourceWidth,
+        (p.widthFactor as number | undefined) ?? river.widthFactor
+      );
+    }
+    redrawNetwork("river", id);
+    return {
+      ok: true,
+      message: `River ${id} "${river.name}" updated (${wanted.join(", ")})`,
+      changed: wanted.length,
+      details: {
+        river: id,
+        changed: wanted,
+        name: river.name,
+        type: river.type,
+        parent: river.parent,
+        sourceWidth: river.sourceWidth,
+        widthFactor: river.widthFactor
+      }
+    };
+  }
+};
+
+export const featureCommands: Command[] = [
+  addMarker,
+  removeMarker,
+  addRoute,
+  updateRoute,
+  splitRoute,
+  joinRoutes,
+  removeRoute,
+  addRiver,
+  updateRiver,
+  removeRiver
+];

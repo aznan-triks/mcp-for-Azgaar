@@ -1,57 +1,57 @@
-// `npm run update`: moves to a newer Azgaar without risk.
-// The new version is downloaded, patched, built and tested next to the current one; only if the compatibility check
-// passes does it replace the current one. Otherwise the current Azgaar is left untouched and the reason is printed.
-//   (default)   latest official Azgaar release        --edge   newest development version       --ref X   a tag, branch or commit
-//   --known-good   go back to the version this project was tested with
-import { existsSync, renameSync, rmSync } from "node:fs";
+// Safely upgrade the checked-in Azgaar copy. A candidate is patched, built and smoke-tested
+// before the current version is touched; any failed check leaves the current copy intact.
+// npm run update -- [--known-good | --ref TAG_OR_COMMIT | --edge]; default: latest release.
+import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { knownGood, latestRelease, prepare, readState, root, run, upstreamDir, writeState } from "./azgaar.mjs";
+import { distIndex, knownGood, latestRelease, prepare, root, run, vendorDir } from "./azgaar.mjs";
 import { isSupportedNode, unsupportedNodeMessage } from "./node-version.mjs";
 
 const args = process.argv.slice(2);
-const opt = name => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
-
-if (!isSupportedNode()) {
-  console.error(unsupportedNodeMessage());
+const usage = "Usage: npm run update -- [--known-good | --ref TAG_OR_COMMIT | --edge]";
+if (!isSupportedNode()) { console.error(unsupportedNodeMessage()); process.exit(1); }
+if (args.length > 2 || (args.length === 2 && args[0] !== "--ref") ||
+    (args.length === 1 && !["--known-good", "--edge"].includes(args[0]))) {
+  console.error(usage);
   process.exit(1);
 }
 
-const fresh = `${upstreamDir}.new`;
-const previous = `${upstreamDir}.prev`;
+// Candidate and backup live alongside the vendor checkout for atomic renames, even on Windows.
+const candidate = join(root, "vendor", `.azgaar-candidate-${process.pid}`);
+const backup = join(root, "vendor", `.azgaar-previous-${process.pid}`);
+const failed = join(root, "vendor", `.azgaar-failed-${process.pid}`);
+let backedUp = false;
 try {
+  if (existsSync(candidate) || existsSync(backup) || existsSync(failed)) throw new Error("A temporary update folder exists. Remove it only after checking no other update is running.");
   let ref;
   let label;
   if (args.includes("--known-good")) ({ ref, label } = knownGood());
-  else if (args.includes("--edge")) [ref, label] = ["master", "Azgaar development version"];
-  else if (opt("--ref")) [ref, label] = [opt("--ref"), `Azgaar ${opt("--ref")}`];
-  else {
-    ref = await latestRelease();
-    label = `Azgaar ${ref}`;
-  }
-  const current = readState();
-  if (current && current.ref === ref) {
-    console.log(`Already on ${label}. Nothing to do.`);
+  else if (args.includes("--edge")) [ref, label] = ["master", "Azgaar development branch"];
+  else if (args[0] === "--ref" && args[1]) [ref, label] = [args[1], `Azgaar ${args[1]}`];
+  else { ref = await latestRelease(); label = `Azgaar ${ref}`; }
+
+  const marker = join(vendorDir, ".upstream-commit");
+  const current = existsSync(marker) ? readFileSync(marker, "utf8").trim() : "none";
+  if (current === ref && existsSync(distIndex(vendorDir))) {
+    console.log(`Already running ${label} (${ref}). Nothing to do.`);
     process.exit(0);
   }
-  console.log(`Current: ${current?.label ?? "none"}   ->   Trying: ${label}\n`);
+  console.log(`Current: ${current}; preparing ${label} (${ref}) without touching the current map ...`);
+  await prepare(ref, candidate);
+  const test = run(process.execPath, [join(root, "scripts", "compat.mjs"), candidate], root);
+  if (test.status !== 0) throw new Error("The candidate failed its real-browser compatibility check.");
 
-  rmSync(fresh, { recursive: true, force: true });
-  await prepare(ref, fresh);
-
-  console.log("\nTesting the new version with the bridge ...");
-  const test = run(process.execPath, [join(root, "scripts", "compat.mjs"), fresh], root);
-  if (test.status !== 0) throw new Error("The new Azgaar did not pass the compatibility check.");
-
-  rmSync(previous, { recursive: true, force: true });
-  if (existsSync(upstreamDir)) renameSync(upstreamDir, previous);
-  renameSync(fresh, upstreamDir);
-  writeState(upstreamDir, ref, label);
-  rmSync(previous, { recursive: true, force: true });
-  console.log(`\nUpdated to ${label}. Restart your AI client (Claude) to use it.`);
+  if (existsSync(vendorDir)) { renameSync(vendorDir, backup); backedUp = true; }
+  renameSync(candidate, vendorDir);
+  if (backedUp) { rmSync(backup, { recursive: true, force: true }); backedUp = false; }
+  console.log(`\nUpdated to ${label}. Review and commit the vendor changes after npm run check.`);
 } catch (err) {
-  rmSync(fresh, { recursive: true, force: true });
-  if (existsSync(previous) && !existsSync(upstreamDir)) renameSync(previous, upstreamDir);
+  if (backedUp && existsSync(backup)) {
+    if (existsSync(vendorDir)) renameSync(vendorDir, failed);
+    renameSync(backup, vendorDir);
+  }
+  rmSync(candidate, { recursive: true, force: true });
+  rmSync(failed, { recursive: true, force: true });
   console.error(`\nNot updated: ${err instanceof Error ? err.message : err}`);
-  console.error("Your current Azgaar was kept and keeps working. If you think this is a bug in the bridge, open an issue on GitHub and mention the line above.");
+  console.error("The previous Azgaar remains available. Do not accept an incompatible release as known-good.");
   process.exit(1);
 }

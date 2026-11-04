@@ -19,8 +19,9 @@ async function setup(name: string) {
   cfg.browser.executablePath = process.env.FMG_TEST_CHROMIUM ?? null;
   cfg.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
   cfg.profileDir = join(work, `profile-${name}`);
-  cfg.map.seed = "333";
-  cfg.browser.viewport = { width: 1280, height: 720 }; cfg.map.width = 1280; cfg.map.height = 720;
+  cfg.map.seed = "trois";
+  cfg.browser.viewport = { width: 1280, height: 720 }; cfg.map.width = 1280; cfg.map.height = 720; // tests do not depend on the user-facing default size
+
   const web = await startStaticServer(cfg.azgaarDist, "127.0.0.1", 0);
   const session = new MapSession(cfg, web.url);
   const autosave = new Autosave(join(work, `${name}.map`), session);

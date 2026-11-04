@@ -2,6 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, s
 import { basename, extname, join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
 import type { Config } from "./config.ts";
+import { uniqueFile } from "./files.ts";
 
 export interface OpenOptions {
   seed?: string | null;
@@ -12,6 +13,8 @@ export interface OpenOptions {
 type AgentWindow = { FMG_AGENT: Record<string, (...args: unknown[]) => unknown> };
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]); // const-ok: loopback host names are protocol constants
+
+const BLOCKED_REQUESTS_KEPT = 200; // const-ok: how many refused outside addresses map_status remembers
 
 const PROFILE_LOCK_FILES = ["SingletonLock", "SingletonCookie", "SingletonSocket"]; // const-ok: file names fixed by Chromium
 
@@ -152,6 +155,8 @@ export class MapSession {
       const url = new URL(route.request().url());
       if (url.protocol === "data:" || url.protocol === "blob:" || LOCAL_HOSTS.has(url.hostname)) return route.continue();
       this.blockedRequests.add(`${url.origin}${url.pathname}`);
+      // Keep the newest addresses only: a page that keeps calling out must not grow this list for weeks.
+      if (this.blockedRequests.size > BLOCKED_REQUESTS_KEPT) this.blockedRequests.delete(this.blockedRequests.values().next().value as string);
       return route.abort();
     });
     this.context.on("close", () => {
@@ -177,23 +182,37 @@ export class MapSession {
     await page.evaluate(cfg => (window as unknown as AgentWindow).FMG_AGENT.configure(cfg), this.cfg.bridge);
   }
 
-  /** Runs `trigger` (which makes Azgaar start a file download), saves the file in the exports folder and returns where. */
+  /** Saves a file produced by Azgaar's download menu to the configured exports folder. */
   async captureDownload(trigger: () => Promise<unknown>, fileName?: string): Promise<{ file: string; bytes: number; suggestedName: string }> {
     const page = await this.ensure();
     mkdirSync(this.cfg.exportsDir, { recursive: true });
     const waiting = page.waitForEvent("download", { timeout: this.cfg.limits.exportTimeoutMs });
-    waiting.catch(() => undefined); // reported below if the trigger itself succeeds but nothing is downloaded
+    waiting.catch(() => undefined); // consume a late timeout if the trigger itself throws
     await trigger();
     const download = await waiting.catch(() => {
-      throw new Error("Azgaar did not produce a file (nothing was downloaded). If the browser window was closed or crashed, ask again (it reopens); if it keeps failing, close any leftover Chrome window from a previous run, or delete the .browser-profile folder.");
+      throw new Error("Azgaar did not produce a file (nothing was downloaded). Check the browser window and try again.");
     });
     const suggestedName = download.suggestedFilename();
     const ext = extname(suggestedName);
     const wanted = (fileName ?? basename(suggestedName, ext)).replace(/[^A-Za-z0-9._ -]/g, "_").replace(/\.\.+/g, ".") || "export";
-    let file = join(this.cfg.exportsDir, `${wanted}${ext}`);
-    if (existsSync(file)) file = join(this.cfg.exportsDir, `${wanted}-${Date.now()}${ext}`);
+    const file = uniqueFile(this.cfg.exportsDir, wanted, ext);
     await download.saveAs(file);
     return { file, bytes: statSync(file).size, suggestedName };
+  }
+
+  /** Set a file input without relying on an interactive native file picker. */
+  async setInputFile(selector: string, path: string): Promise<void> {
+    const page = await this.ensure();
+    await page.setInputFiles(selector, path, { timeout: this.cfg.limits.exportTimeoutMs });
+  }
+
+  /** Upload through a button that opens the native picker. Start listening before clicking it. */
+  async uploadViaPicker(trigger: () => Promise<unknown>, path: string): Promise<void> {
+    const page = await this.ensure();
+    const waiting = page.waitForEvent("filechooser", { timeout: this.cfg.limits.exportTimeoutMs });
+    waiting.catch(() => undefined);
+    await trigger();
+    await (await waiting).setFiles(path);
   }
 
   /** Generates a fresh map (reloads the page with new parameters). */
@@ -248,6 +267,27 @@ export class MapSession {
     } finally {
       await cdp.detach().catch(() => undefined);
     }
+  }
+
+  /** Opt-in vector screenshot at a higher scale, filtered in the same page by FMG_AGENT.
+   * Default (supersample=1) is the original CDP path, byte-for-byte unchanged. */
+  async captureFiltered(
+    scale: number, format: "png" | "jpeg", jpegQuality: number,
+    width: number, height: number, supersample: number,
+    filter: "lanczos3" | "stepdown" | "fast"
+  ): Promise<{ data: Buffer; downsampleMs: number }> {
+    if (supersample === 1) return { data: await this.captureScaled(scale, format, jpegQuality), downsampleMs: 0 };
+    const sourceWidth = Math.round(this.viewportSize().width * scale * supersample);
+    const sourceHeight = Math.round(this.viewportSize().height * scale * supersample);
+    if (Math.max(sourceWidth, sourceHeight) > this.cfg.export.maxSourcePixels)
+      throw new Error(`Supersampled source ${sourceWidth}x${sourceHeight} exceeds export.maxSourcePixels (${this.cfg.export.maxSourcePixels})`);
+    const raw = await this.captureScaled(scale * supersample, "png", jpegQuality);
+    const filtered = await this.call<{ base64: string; width: number; height: number; downsampleMs: number }>(
+      "downsampleImage", { base64: raw.toString("base64"), mimeType: `image/${format}`, width, height, filter, quality: jpegQuality / 100 }
+    );
+    if (filtered.width !== width || filtered.height !== height)
+      throw new Error("The browser returned the wrong filtered image dimensions");
+    return { data: Buffer.from(filtered.base64, "base64"), downsampleMs: filtered.downsampleMs };
   }
 
   /** True while a browser window exists (background jobs must never reopen one the person closed). */

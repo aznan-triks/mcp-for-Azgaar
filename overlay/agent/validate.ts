@@ -30,7 +30,8 @@ function check(key: string, spec: ParamSpecs[string], value: unknown, context: s
       return;
     }
     case "string": {
-      if (typeof value !== "string" || !value.length) fail("must be a non-empty string");
+      if (typeof value !== "string" || (!value.length && !spec.allowEmpty))
+        fail(spec.allowEmpty ? "must be a string" : "must be a non-empty string");
       if (spec.enum && !spec.enum.includes(value)) fail(`must be one of: ${spec.enum.join(", ")}`);
       return;
     }
@@ -42,6 +43,16 @@ function check(key: string, spec: ParamSpecs[string], value: unknown, context: s
       if (!Array.isArray(value) || !value.every(v => Number.isInteger(v))) fail("must be an array of integers");
       return;
     }
+    case "units": {
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        Array.isArray(value) ||
+        Object.values(value).some(count => !Number.isSafeInteger(count) || (count as number) < 0)
+      )
+        fail("must be an object of unit names and non-negative safe integer counts");
+      return;
+    }
     case "points": {
       if (!isPointList(value, 3)) fail("must be an array of at least 3 [x, y] points");
       return;
@@ -50,7 +61,28 @@ function check(key: string, spec: ParamSpecs[string], value: unknown, context: s
       if (!isPointList(value, 2)) fail("must be an array of at least 2 [x, y] points");
       return;
     }
+    case "record": {
+      const entries = isRecord(value) ? Object.entries(value) : null;
+      if (!entries) fail("must be an object of names and numbers");
+      else if (entries.some(([, v]) => typeof v !== "number" || !Number.isFinite(v)))
+        fail("must hold only numbers (counts are whole numbers, checked again by the command)");
+      return;
+    }
+    case "scalar": {
+      // a plain style value: text, a number or true/false; null is treated as absent above (unsets an attr)
+      if (
+        typeof value !== "string" &&
+        typeof value !== "boolean" &&
+        !(typeof value === "number" && Number.isFinite(value))
+      )
+        fail("must be text, a number or true/false (null unsets a value)");
+      return;
+    }
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isPointList(value: unknown, minLength: number): boolean {

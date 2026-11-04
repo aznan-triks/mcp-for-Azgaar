@@ -8,6 +8,8 @@ const SCOPES: Scope[] = ["dialogs", "menu", "page"];
 const CONTROLS =
   "button, input, select, textarea, a[onclick], [onclick], .pseudoLink, summary, [role='button'], label[for], [data-tip]";
 
+const ALSO_MATCHED_MAX = 5; // how many equally good candidates are described to the caller
+
 const refs = new Map<string, HTMLElement>();
 let refCounter = 0;
 
@@ -123,17 +125,26 @@ export function uiList(args: Params = {}): Record<string, unknown> {
   return { scope, dialogs: openDialogs(), total, controls: controls.slice(0, limit), truncated: total > limit };
 }
 
-function resolve(args: Params): HTMLElement {
+interface Resolved {
+  el: HTMLElement;
+  /** Other elements that matched the text just as well (same rank): the choice was a guess between them. */
+  alsoMatched: HTMLElement[];
+}
+
+const resolve = (args: Params): HTMLElement => resolveWithAlternatives(args).el;
+
+function resolveWithAlternatives(args: Params): Resolved {
+  const only = (el: HTMLElement): Resolved => ({ el, alsoMatched: [] });
   if (typeof args.ref === "string") {
     const el = refs.get(args.ref);
     if (!el?.isConnected)
       throw new AgentError(`ui: reference "${args.ref}" is out of date: call map_ui list/find again`);
-    return el;
+    return only(el);
   }
   if (typeof args.id === "string") {
     const el = document.getElementById(args.id);
     if (!el) throw new AgentError(`ui: no element with id "${args.id}" (use map_ui find to look for it)`);
-    return el;
+    return only(el);
   }
   if (typeof args.selector === "string") {
     let found: HTMLElement | null = null;
@@ -144,7 +155,7 @@ function resolve(args: Params): HTMLElement {
       throw new AgentError(`ui: invalid selector "${args.selector}"`);
     }
     if (!found) throw new AgentError(`ui: nothing matches selector "${args.selector}"`);
-    return found;
+    return only(found);
   }
   if (typeof args.text === "string") {
     const wanted = args.text.toLowerCase();
@@ -174,7 +185,11 @@ function resolve(args: Params): HTMLElement {
       throw new AgentError(
         `ui: nothing on screen (${scope}) says "${args.text}". Use map_ui list to see what is there`
       );
-    return matches[0].el;
+    const best = matches[0];
+    const alsoMatched = matches
+      .filter(m => m !== best && m.r[0] === best.r[0] && !best.el.contains(m.el) && !m.el.contains(best.el))
+      .map(m => m.el);
+    return { el: best.el, alsoMatched };
   }
   throw new AgentError("ui: say which element: ref, id, selector or text");
 }
@@ -183,16 +198,27 @@ const fire = (el: Element, type: string): void => {
   el.dispatchEvent(new Event(type, { bubbles: true }));
 };
 
+/** Tells the caller when the text it gave fitted several elements equally well, so a wrong guess does not go unnoticed. */
+function ambiguity(args: Params, others: HTMLElement[]): Record<string, unknown> {
+  if (!others.length) return {};
+  return {
+    alsoMatched: others.slice(0, ALSO_MATCHED_MAX).map(describe),
+    warning: `${others.length} other element(s) match "${String(args.text)}" just as well: if this was not the one you meant, name it by ref, id or selector (map_ui find lists them)`
+  };
+}
+
 export function uiClick(args: Params): Record<string, unknown> {
-  const el = resolve(args);
+  const { el, alsoMatched } = resolveWithAlternatives(args);
+  const note = ambiguity(args, alsoMatched);
   if ((el as HTMLButtonElement).disabled) throw new AgentError(`ui: "${labelOf(el) || el.id}" is disabled right now`);
   if (typeof el.click === "function") el.click();
   else el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  return { clicked: describe(el), dialogs: openDialogs() };
+  return { clicked: describe(el), dialogs: openDialogs(), ...note };
 }
 
 export function uiSet(args: Params): Record<string, unknown> {
-  const el = resolve(args);
+  const { el, alsoMatched } = resolveWithAlternatives(args);
+  const note = ambiguity(args, alsoMatched);
   const value = args.value;
   if (value === undefined) throw new AgentError("ui set: give a value");
   const tag = el.tagName;
@@ -226,7 +252,7 @@ export function uiSet(args: Params): Record<string, unknown> {
     fire(el, "blur");
   } else
     throw new AgentError(`ui set: "${labelOf(el) || el.id}" is not a field (it is a ${tag.toLowerCase()}): use click`);
-  return { set: describe(el), dialogs: openDialogs() };
+  return { set: describe(el), dialogs: openDialogs(), ...note };
 }
 
 export function uiGet(args: Params): Record<string, unknown> {

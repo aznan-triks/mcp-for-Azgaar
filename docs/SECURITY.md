@@ -1,90 +1,41 @@
-# Security and Privacy Reference
+# Security
 
-> **Tested on:** Windows 10 with Google Chrome and a stdio MCP client. macOS, Linux, Microsoft Edge alone and the other AI programs named here follow the same standards and the installer is written for them, but they have not been tested yet.
+What this project can and cannot do, in plain terms, and what a scanner says about it.
 
-This document explains what mcp-for-Azgaar does on your computer, what it downloads, where it writes files, and the boundaries that keep your data private and safe.
+## What runs, and where
 
-## What Runs on Your Computer
+The server is a local Node process. It starts one Chromium window, serves the pinned Azgaar build over HTTP on `127.0.0.1`, and drives that window. The map you see and edit lives in that window; the AI never gets a shell.
 
-When your AI program uses mcp-for-Azgaar, three components run locally on your machine:
+- **Nothing leaves the machine.** The map page would normally fetch ~40 fonts from a CDN and check for updates; the fonts are vendored and the outside is refused. `npm run compat` fails if a single external request is attempted, and `map_status` lists what was blocked.
+- **The local HTTP server has no authentication**, because it is bound to the loopback interface. Keep it that way: `server.host` exists for debugging, and exposing the port to a network exposes a browser that can edit your map. The server prints a warning at startup if `server.host` is not a loopback address.
+- **`map_file load` takes absolute paths** to `.map` files, because people keep their maps outside the project. It follows links but refuses one that ends on a file that is not a `.map`, refuses anything that is not a regular file, and refuses a file over `limits.mapFileBytesMax`. It cannot read other kinds of files.
+- **Files**: reads and writes are confined to the project's `maps/`, `exports/` and profile folders by default. `map_file {path}` and a personal `FMG_EXPORTS_DIR` are the two deliberate escapes, both named by the caller. A file name passed to `map_file {name}` is sanitized (no path separators, no `..`).
 
-1. **The MCP server process**: A Node.js background process (`server/index.ts` via `scripts/start.mjs`). It speaks the Model Context Protocol (MCP) over standard input/output (stdio) with your AI client (for example Claude Desktop). It never listens for incoming connections from the outside internet.
-2. **A local web server**: An internal HTTP server (`server/static.ts`) that serves Azgaar's web files. It binds exclusively to the loopback address (`127.0.0.1`), meaning it is accessible only from your own computer.
-3. **A browser instance**: A local browser window (Google Chrome or Microsoft Edge) controlled through Playwright. The browser displays the map and runs the AI bridge (`overlay/agent/`).
+## What the AI is allowed to do
 
-## Network Access and Offline Guarantee
+`map_apply` only runs commands the bridge registers, each with a typed schema validated before anything mutates. Two switches matter:
 
-Once installed, mcp-for-Azgaar is designed to operate 100% offline.
+- `allowEval` (off by default) enables `map_eval`, which evaluates arbitrary JavaScript **in the map page**. It is the escape hatch of the toolset: it can do anything the Azgaar interface can, and it writes an undo snapshot first. Turn it on only when you want that, and remember the undo history and the autosave are your recovery path.
+- Destructive commands ask for confirmation: `createSubmap` refuses to run unless `confirmDestructiveResample: true` is sent, and the parent map is written to `maps/pre-submap.map` before the resample. `map_undo` restores it.
 
-- **Outside requests are blocked**: In `server/browser.ts`, network routing intercepts every HTTP and HTTPS request from the browser context (`context.route("**/*")`). Only requests to `data:` URLs, `blob:` URLs, and local loopback hosts (`127.0.0.1`, `localhost`, `[::1]`) are allowed to load.
-- **Outside requests are logged**: Any attempt by the page or any embedded script to contact an outside server is immediately aborted and added to an internal list.
-- **Auditing blocked requests**: You or the AI can call the `map_status` tool at any time. It returns `blockedOutsideRequests`, listing every external URL that the browser attempted to reach and was denied.
+Text that comes back out of the map (notes, lore, names) is **data, not instructions**. Notes are cleaned in the page before storage: every element outside the notes editor's subset, every `on*` handler and `javascript:` URL is dropped, and the result is gated by Azgaar's own `isSafeHtml`. An AI client reading `fmg://map/notes` gets that cleaned text; it should still treat it as content to describe, not orders to follow.
 
-## What Is Downloaded and From Where
+Tool annotations (`readOnlyHint`, `destructiveHint`, …) tell a client what a tool tends to do. They are hints, not permissions: no part of the server reads them.
 
-Internet access is used only during installation and explicit updates.
+## Scanner findings
 
-- **At installation time**:
-  - The setup script (`scripts/azgaar.mjs`) queries the official GitHub API (`https://api.github.com/repos/Azgaar/Fantasy-Map-Generator/releases/latest`) or downloads a specific source archive from GitHub codeload (`https://codeload.github.com/Azgaar/Fantasy-Map-Generator/tar.gz/<ref>`).
-  - Standard npm packages required to build Azgaar and run the server are installed via `npm ci --ignore-scripts --no-audit --no-fund` and `npm install`.
-  - Nothing else is downloaded.
-- **No background updates**: The software never checks for updates or downloads code in the background. New versions of Azgaar are downloaded only when you manually run `npm run update` or double-click `update.bat`.
+The clean-room bundle is scanned by the HOL Plugin Scanner (`hol-guard` 3.0.123, `default` profile, the version the workflow pins). Last run on this branch, on `.public-export/`: **88/100** (grade Good), 0 critical, 1 high, 0 medium, 1 low, with `policy_pass` and `verify_pass` both true. The catalogue criterion is a completed scan at a normalized score >= 80 with every finding fixed **or documented**; `.github/workflows/scanner.yml` runs exactly that on every push and pull request (observed green on a GitHub runner: the listing gate passed on this branch's bundle in 33 s, the stricter advisory job reported its result without blocking, and the compatibility job ran the full suite in 12 m 40 s), and `npm run prepare-public` refuses to produce a bundle that leaks private identity, personal paths or credentials. Full report: `audits/scanner-public-export.json` (generated, not committed).
 
-## Where Files Are Written
-
-All permanent files created by mcp-for-Azgaar stay inside the project directory, with the exception of configuration backups made in your AI client's settings folder:
-
-| Folder / File | Location | Content and Purpose |
+| Finding | Where | Status |
 |---|---|---|
-| `maps/` | Project root | Stores saved map files (`.map`) and the automatic background save (`autosave.map`). |
-| `maps/history/` | Project root | Stores numbered `.map` snapshots used for undo and redo operations. |
-| `exports/` | Project root | Stores exported image files (`.png`, `.svg`, `.jpeg`), zipped tiles, and exported data (`.json`, `.geojson`, `.csv`). |
-| `upstream/` | Project root | Stores the downloaded Azgaar source code, compiled web assets (`upstream/azgaar/dist-electron/renderer/`), and version metadata (`upstream/state.json`). |
-| `.browser-profile/` | Project root | Stores the browser user profile, cache, and `localStorage` used by the automated browser instance. |
-| Client config backups | Client settings directory | When `scripts/register.mjs` updates a client configuration file (e.g. Claude Desktop settings), it saves a timestamped backup copy with extension `.bak-<timestamp>` in the same folder first. |
-| Temporary directories | OS temporary folder | Short-lived folders prefixed with `azgaar-compat-`, `azgaar-docs-` or `azgaar-dl-`, used during setup, updates and documentation generation. These are deleted after use. The self-test (`npm run doctor`) uses a `.browser-profile-doctor` folder next to `.browser-profile`, which it removes when it finishes. |
+| `DANGEROUS_DYNAMIC_EXECUTION` (high) for `map_eval` | `server/tools.ts` | Documented, kept: gated by `allowEval` (off by default), the map page is the only target, an undo snapshot is taken first, and the tool is named as an escape hatch in the client instructions. Removing it would delete a documented capability to satisfy a static rule that cannot see the gate. |
+| `DANGEROUS_DYNAMIC_EXECUTION` (high) in a browser test | `test/bridge.smoke.mjs` | Fixed: the probe source is handed to `page.evaluate` as an expression, so the test bundle carries no `eval` call site. The behaviour tested is the same. |
+| `LICENSE_MISSING` (low) at the bundle root | `LICENSE` | Documented, open: the workshop ships no licence on purpose, and the choice belongs to the account that publishes. The bundle carries it in `PUBLISHING.md`, and the manifest field matches whatever is chosen. |
+| Dynamic evaluation inside the pinned engine (D3, two editors, the assistant runtime) | `vendor/azgaar/**` | Not in the bundle: `npm run prepare-public` publishes the overlay (`overlay/agent/`), not a copy of Azgaar. In the workshop those calls are the upstream engine's own code, pinned by digest. |
+| Candidate secret strings in a vendored Dropbox SDK build and an upstream test | `vendor/azgaar/**` | Not published, and no secret material of this project is reproduced anywhere in the bundle: the scan of the export itself reports none. |
 
-## Accounts, Keys, and Telemetry
+The manifest at `.claude-plugin/plugin.json` is what satisfies the ecosystem checks (name, semver, relative paths, parseable hooks: 18 of 18 points). Deliberately **not** done, because that would cheat the scanner instead of securing the project: obfuscating `eval` call sites, suppressing or waiving rules, editing the pinned engine to dodge a finding, or claiming a score that was not measured.
 
-- **No accounts or registration**: You do not need to create an account or sign in to any service to use this software.
-- **No API keys or tokens**: The server requires no API keys, credentials, or secrets.
-- **No telemetry or tracking**: There is zero telemetry, usage analytics, or crash reporting in mcp-for-Azgaar. In addition, when Azgaar is compiled during setup, it is built with `--mode electron`, which deactivates the web analytics included in Azgaar's default web build.
+## Reporting
 
-## What the AI Can and Cannot Do
-
-The AI interacts with Azgaar strictly through the registered MCP tools.
-
-### What the AI can do
-- Inspect map geography, states, cities, relief, biomes, and populations.
-- Take screenshots or generate character-based text maps of the active viewport.
-- Select regions, shift borders, found states, raise terrain, and adjust labels.
-- Trigger Azgaar menu commands and click dialog buttons via `map_menu` and `map_ui`.
-- Save maps to `maps/` and export visual or tabular data to `exports/`.
-- Undo any modifications made during the active session.
-
-### What the AI cannot do
-- **Writing stays inside the project**: map tools write only to `maps/` (saves, autosave, undo snapshots) and `exports/` (exports). Reading is limited to saved maps in `maps/`, with one exception described next.
-- **Safe file export**: In `server/browser.ts` and `server/tools-extra.ts`, export file names are sanitized: path traversal characters (`..`) and directory slashes are removed. All exported files are written strictly inside the `exports/` folder.
-- **Local file upload boundary**: The `map_ui` tool provides an `upload` action that can pass a file path into an in-page file picker (for example to load a custom heightmap image or `.map` file). It only checks that the path exists on your computer; it does **not** restrict it to the project folder. So an AI can hand any file it knows the path of (for example a picture in your Downloads folder) to Azgaar's page. That page is offline and cannot send the content anywhere, but keep it in mind, and decline an `upload` you did not expect.
-- **JavaScript evaluation is disabled by default**: The `map_eval` tool is disabled by default (`"allowEval": false` in `config/fmg-mcp.json`). If manually enabled, the AI can execute arbitrary JavaScript within the browser page context. It is protected by an undo snapshot before execution, but can alter in-memory page structures.
-
-## Port Collisions and Multi-Instance Risks
-
-By default, the internal static web server listens on TCP port `8765` on `127.0.0.1`.
-
-- **Port in use error**: If another program (or a second running instance of mcp-for-Azgaar) is already using port 8765, the server fails to start with the message `Port 8765 is already in use: change server.port in config/fmg-mcp.json`.
-- **Profile locking**: Running multiple AI clients connected to mcp-for-Azgaar simultaneously can cause Playwright to fail because the `.browser-profile` folder is locked by the first running browser process.
-- **Recommendation**: Run one AI client at a time with mcp-for-Azgaar, or configure distinct ports (`server.port`) and distinct profile directories (`profileDir`) in `config/fmg-mcp.json` if running multiple instances.
-
-## Technical Limits
-
-- The Node.js server process runs with the privileges of the local user who launched the AI client. It does not run in a low-privilege operating system sandbox.
-- Loopback isolation protects against external network access, but any program already running locally on your computer with user permissions could connect to `http://127.0.0.1:8765` while the server is active.
-
-## Reporting a Vulnerability
-
-If you discover a security issue or vulnerability in mcp-for-Azgaar:
-
-- Open an issue on GitHub: [https://github.com/aznan-triks/mcp-for-Azgaar/issues](https://github.com/aznan-triks/mcp-for-Azgaar/issues).
-- Please describe the issue clearly and include steps to reproduce.
-- Do not publish sensitive personal credentials, API keys, or uncoordinated exploit details in public issue trackers.
+See [SECURITY.md](../SECURITY.md) at the root of the repository for how to report a vulnerability and which versions are supported.

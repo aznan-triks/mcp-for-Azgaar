@@ -4,34 +4,40 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Autosave, restoreOnLaunch } from "./autosave.ts";
 import { MapSession } from "./browser.ts";
-import { loadConfig } from "./config.ts";
+import { isLoopbackHost, loadConfig } from "./config.ts";
 import { History } from "./history.ts";
 import { Exclusive } from "./queue.ts";
+import { registerResourcesAndPrompts } from "./resources.ts";
 import { startStaticServer } from "./static.ts";
 import { registerTools, SERVER_INSTRUCTIONS } from "./tools.ts";
 
 const MS_PER_SECOND = 1e3; // const-ok: unit conversion
+const SHUTDOWN_GRACE_SECONDS = 15; // const-ok: longest wait for the browser and the web server to close
 
 // Never write to stdout: it carries the MCP protocol. Logs go to stderr.
 const log = (message: string) => process.stderr.write(`[fmg-mcp] ${message}\n`);
 
 const cfg = loadConfig();
+if (!isLoopbackHost(cfg.server.host))
+  log(`WARNING: server.host is "${cfg.server.host}": other devices on your network can open and control the map page. Set it back to 127.0.0.1 unless you really mean it.`); // const-ok: advice text
 const web = await startStaticServer(cfg.azgaarDist, cfg.server.host, cfg.server.port);
 const session = new MapSession(cfg, web.url);
 const history = new History(join(cfg.mapsDir, "history"), cfg.history.maxEntries, session);
 const { version } = JSON.parse(readFileSync(join(cfg.root, "package.json"), "utf8")) as { version: string };
 
-const server = new McpServer({ name: "azgaar", version }, { instructions: SERVER_INSTRUCTIONS });
+const server = new McpServer({ name: "map-of-trois", version }, { instructions: SERVER_INSTRUCTIONS });
 const exclusive = new Exclusive();
 const autosave = new Autosave(join(cfg.mapsDir, "autosave.map"), session);
 restoreOnLaunch(session, autosave, cfg.startup === "autosave", log);
 registerTools(server, cfg, session, history, exclusive, autosave);
+registerResourcesAndPrompts(server, session, exclusive);
 
 let closing = false;
 let timer: NodeJS.Timeout | null = null;
 async function shutdown(code: number): Promise<void> {
   if (closing) return;
   closing = true;
+  setTimeout(() => process.exit(code), SHUTDOWN_GRACE_SECONDS * MS_PER_SECOND).unref(); // a stuck browser must not keep the server alive
   if (timer) clearInterval(timer);
   try {
     // Last save, so that manual edits made in the window since the previous save are not lost.
@@ -39,8 +45,8 @@ async function shutdown(code: number): Promise<void> {
   } catch (err) {
     log(`final autosave failed: ${err instanceof Error ? err.message : String(err)}`);
   }
-  await session.close();
-  await web.close();
+  await session.close().catch(err => log(`closing the browser failed: ${err instanceof Error ? err.message : String(err)}`));
+  await web.close().catch(err => log(`closing the map server failed: ${err instanceof Error ? err.message : String(err)}`));
   process.exit(code);
 }
 process.on("SIGINT", () => void shutdown(0));

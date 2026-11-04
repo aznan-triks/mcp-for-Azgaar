@@ -12,7 +12,7 @@ AI client (Claude)  --MCP over stdio-->  server/  --Playwright-->  Chrome/Edge w
 |---|---|---|---|
 | MCP server | `server/` | the bridge's public methods (`FMG_AGENT.*`), Playwright, the filesystem | Azgaar's data structures (`pack`, `grid`...) |
 | Bridge | `overlay/agent/` (copied into Azgaar's `src/agent` at install) | Azgaar's own code and globals | Playwright, MCP, the server |
-| Azgaar | `upstream/azgaar` (downloaded, gitignored) | - | - |
+| Azgaar | `vendor/azgaar` (downloaded by `npm run setup`, gitignored) | - | - |
 
 `npm run check` enforces the two "must not" rules.
 
@@ -24,7 +24,7 @@ It can import Azgaar's internal editor functions, so every edit repeats the exac
 
 Azgaar is not stored here. `scripts/azgaar.mjs` downloads a tag/commit and applies a short list of patches **by pattern**, not by line number:
 
-1. copy `overlay/agent` to `src/agent` and `overlay/fonts` to `public/fonts`;
+1. copy `overlay/agent` to `src/agent`, `overlay/fonts` to `public/fonts` and the few guarded upstream files of `overlay/azgaar/src` over their upstream originals (the 3D view; they are replaced only if the upstream file is the exact version they were made from);
 2. add `import "@/agent"` to `src/main.ts`;
 3. add `export` to six internal functions, wherever Azgaar keeps them (so file moves do not matter);
 4. two small upstream fixes (States editor refresh with the dialog closed; null deity in the religion name generator);

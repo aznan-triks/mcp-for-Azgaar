@@ -1,6 +1,9 @@
 // `npm run docs`: writes docs/TOOLS.md and docs/COMMANDS.md from the running server itself, so they are always exact.
-//   --check   writes nothing; fails if the files on disk differ from what the server says now (used by npm run check)
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+//   --check   writes nothing; fails if the files on disk differ from what the server says now (used by `npm run docs:check`)
+// The tool list and the command schemas are never copied by hand: a temporary server is started with a fixed seed,
+// `tools/list` and `map_commands` are read from it, then it is closed. Nothing of the user's maps is touched
+// (maps and browser profile live in a throw-away temporary directory).
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,7 +19,7 @@ if (process.env.FMG_TEST_CHROMIUM) {
   base.browser.channel = null;
 } else base.browser.channel = process.env.FMG_TEST_CHANNEL ?? base.browser.channel;
 base.browser.args = (process.env.FMG_TEST_ARGS ?? "").split(",").filter(Boolean);
-base.map.seed = "333";
+base.map.seed = "trois"; // a fixed test seed, never the person's map
 base.server.port = 0;
 base.allowEval = true; // so that map_eval is documented too
 base.startup = "new";

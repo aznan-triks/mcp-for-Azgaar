@@ -2,6 +2,21 @@
 
 Each entry has two parts: **Plain words** (what it means for you) and **Technical** (what changed and how it is verified).
 
+## 1.5.0
+
+**Plain words:** The AI can do a lot more to a map: 29 new edit commands (zones, notes and world lore, diplomacy and armies, routes, rivers and towns, map styles, topography), framed regional close-ups, a safe "regional submap", read-only world resources and guided workflows. Loading, exporting, undoing and starting are sturdier and safer, every setting and tool now has a documentation page (also in French), and the installer was rebuilt to match. After updating, run `npm run setup` (or double-click `install.bat`) once.
+
+**Technical:**
+- Edit commands: 33 to 62, none removed. New: zones (`addZone`, `updateZone`, `removeZone`, `setZoneCells`, `regenerateZones`), notes and lore (`setNote`, `appendNote`, `removeNote`, `setMapLore`), diplomacy and chronicle (`setDiplomacy`, `resetDiplomacy`, `addChronicleEvent`, `clearChronicle`), armies (`addRegiment`, `updateRegiment`, `removeRegiment`, `moveRegiment`, `attachRegiment`, `splitRegiment`, `regenerateMilitary`), routes, rivers and towns (`updateRoute`, `joinRoutes`, `splitRoute`, `updateRiver`, `updateBurg`), `applyStylePreset`, `setStyle`, `setTopography`, `createSubmap`.
+- `map_view` and PNG/JPEG `map_export` accept `inset` (a framed enlargement beside a locator rectangle, without moving the camera). `createSubmap` is destructive: it needs `confirmDestructiveResample:true`, saves the parent to `maps/pre-submap.map`, and Undo/Redo restore either map.
+- Topography: contour lines, downhill hachures, coloured altitude bands and terrace shadows in one undoable command; the `topographic` layer preset shows the seven cartographic layers together.
+- MCP: tool annotations separate inspection from mutating tools; the world summary, lore, notes and chronicle are readable resources that follow edits, Undo and rollback; three guided workflows.
+- `map_ui`: when a text fits several controls equally well, the one acted on is reported with the others in `alsoMatched` and a `warning`.
+- Safety and reliability: `map_file load` follows links but refuses a target that is not a `.map` file or not a regular file, and files over the new `limits.mapFileBytesMax` (200 MB); exports never overwrite each other; the undo rescue keeps three checkpoints; the "nothing changed" comparison ignores the save date; the autosave temporary file is per process and removed on failure; `FMG_PORT` is validated; a warning is printed if `server.host` is not a loopback address; shutdown logs close errors and cannot hang; an over-budget inset picture is shrunk until it fits.
+- Documentation: every setting, tool and command has a page generated from the running server and checked by the tests; the user pages exist in French.
+- Installer: `scripts/setup.mjs` now assembles `overlay/` in the layout `scripts/azgaar.mjs` expects, downloads the pinned Azgaar into `vendor/azgaar` (it was `upstream/azgaar`), builds it beside the current copy and swaps only on success. `npm run update` works from the same folder.
+- Verified before publishing: a clean install through `npm run setup`, `npm run docs:check`, the documentation tests and the bridge smoke test pass; the 42 end-to-end tests run in this repository's CI.
+
 ## 1.4.3
 
 **Plain words:** Compatibility with newer Azgaar versions: updating to Azgaar v1.154.0 or beyond now succeeds seamlessly without province reconciliation patch failures.

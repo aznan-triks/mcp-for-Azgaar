@@ -7,6 +7,8 @@ import type { Config } from "./config.ts";
 import type { Autosave } from "./autosave.ts";
 import type { History } from "./history.ts";
 import type { Exclusive } from "./queue.ts";
+import { captureInset, insetSchema } from "./inset.ts";
+import { readMapFile } from "./files.ts";
 import { registerExtraTools } from "./tools-extra.ts";
 
 export type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
@@ -18,11 +20,14 @@ export interface ToolResult {
 
 const text = (value: unknown): Content => ({ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) });
 
+const INSET_SHRINK_STEPS = 4; // const-ok: how many times an over-budget inset picture is halved before giving up
+
 export const SERVER_INSTRUCTIONS = `You edit a fantasy map shown live in a browser window (Azgaar's Fantasy Map Generator, offline). The person watches the window and may also edit by hand: look before you act.
 Workflow: map_summary (states, ids) -> map_view with grid/state_ids (you see the map; add region {x0,y0,x1,y1} to zoom on an area; if you cannot see images, pass text_map:true to get the map drawn in characters) -> map_select (red preview appears live) -> map_view to check the preview -> map_apply -> map_view to verify.
 Finding things: when the person names a city or state, use map_list with name (case-insensitive part of the name) to get its id and position. Lists are cut at 50 rows by default; total is the real count. For "what is near / inside / north of ...", add rect, or near (+ within, direction) to map_list instead of reading the whole list.
 Coordinates: "map units" are the map's own coordinates (the graticule labels in map_view). Screenshot pixels are the browser window pixels: convert with map_locate {px,py}. Cells have integer ids; states, provinces, cultures, religions, burgs (cities), rivers, routes and markers too (0 = none/unclaimed).
-Extending a state: map_select shape ring {state, depth} (cells just outside it), optionally intersect with a rect to go one way only (combine_op intersect), then map_apply assignState. Capitals are never taken. Merging states: mergeStates; founding one: createState; provinces: createProvince (needs state-owned land); cultures: createCulture (then give it cells with assignCulture); religions: createReligion. Labels: map_list kind=labels shows them, moveLabel shifts/hides/resets one. Emblems: regenerateEmblem / setEmblemStyle. Legends: map_legend explains the colours of a layer (states, provinces, cultures, religions, biomes, heightmap...). 3D scenes and globes: map_3d (hemispheres: "diptych" generates a complete dual-hemisphere plate). Annotations: map_apply annotate puts arrows, markers, lines, areas and text permanently on the map.
+Extending a state: map_select shape ring {state, depth} (cells just outside it), optionally intersect with a rect to go one way only (combine_op intersect), then map_apply assignState. Capitals are never taken. Merging states: mergeStates; founding one: createState; provinces: createProvince (needs state-owned land); cultures: createCulture (then give it cells with assignCulture); religions: createReligion. Labels: map_list kind=labels shows them, moveLabel shifts/hides/resets one. Emblems: regenerateEmblem / setEmblemStyle. Legends: map_legend explains the colours of a layer (states, provinces, cultures, religions, biomes, heightmap...). Visual style: map_list kind=styles shows the current preset and every style value; applyStylePreset switches the whole theme, setStyle adjusts one value. Cities and networks: updateBurg (architecture, population), updateRoute / splitRoute / joinRoutes, updateRiver. 3D scenes and globes: map_3d (hemispheres: "diptych" generates a complete dual-hemisphere plate). Annotations: map_apply annotate puts arrows, markers, lines, areas and text permanently on the map.
+Regional atlas: map_view or map_export with inset {x0,y0,x1,y1,title?,corner?,cover?} renders a non-destructive regional loupe. createSubmap replaces the map, requires confirmDestructiveResample:true and saves maps/pre-submap.map first.
 Every map_apply is undoable with map_undo, and a failed edit restores the map by itself. Undoing automatically saves maps/rescue-before-undo.map first to safeguard hand edits. Open dialogs are closed automatically before mutating. Prefer small, verifiable steps; report what changed using the numbers returned and the warnings.
 Edits to relief, cultures, religions, provinces or rivers are only visible when their layer is on: use map_layers (e.g. show heightmap or relief to check terrain).
 Terrain edits keep coasts and lakes frozen by default (scope land): fast and nothing else changes. Use scope all to create/remove land or lakes; that rebuilds the map, renumbers cells and may shift coastal borders by a cell elsewhere. Open sea is not selectable: shapeCone / shapeRidge can raise an island there.
@@ -41,7 +46,17 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
       }
     };
 
-  const screenshotContent = async (opts?: { format?: "png" | "jpeg"; maxBytes?: number }): Promise<Content> => {
+  const screenshotContent = async (opts?: { format?: "png" | "jpeg"; maxBytes?: number; supersample?: number; filter?: "lanczos3" | "stepdown" | "fast" }): Promise<Content> => {
+    if (opts?.supersample && opts.supersample > 1) {
+      const size = session.viewportSize();
+      const format = opts.format ?? cfg.view.format;
+      const image = await session.captureFiltered(1, format, cfg.view.jpegQuality, size.width, size.height, opts.supersample, opts.filter ?? "lanczos3");
+      if (image.data.length <= (opts.maxBytes ?? cfg.view.maxImageBytes))
+        return { type: "image", data: image.data.toString("base64"), mimeType: `image/${format}` };
+      // Honour the existing inline-image budget; the caller still sees the same viewport.
+      const smaller = await session.screenshot({ format: "jpeg", maxBytes: opts.maxBytes });
+      return { type: "image", data: smaller.data.toString("base64"), mimeType: smaller.mimeType };
+    }
     const { data, mimeType } = await session.screenshot(opts);
     return { type: "image", data: data.toString("base64"), mimeType };
   };
@@ -59,9 +74,10 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   const presetsPath = join(cfg.mapsDir, cfg.presetsFile);
   const loadSavedPresets = (): Record<string, string[]> => {
     try {
-      return JSON.parse(readFileSync(presetsPath, "utf8"));
-    } catch {
-      return {};
+      return JSON.parse(readFileSync(presetsPath, "utf8")) as Record<string, string[]>;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
+      throw new Error(`Cannot read ${presetsPath}: ${cleanError(err)}`);
     }
   };
   const loadPresets = (): Record<string, string[]> => ({ ...cfg.layerPresets, ...loadSavedPresets() });
@@ -73,10 +89,12 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   server.registerTool(
     "map_view",
     {
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       title: "See the map",
       description:
-        "Screenshot of what the browser window currently shows, plus a legend (state ids/names/colours) and the camera. Options draw temporary annotations for this screenshot only: grid = coordinate graticule labelled in map units; state_ids = id badge on each state; cell_ids = cell ids (only when few cells are visible: zoom in first). whole_map=true first frames the whole map (otherwise the shot shows exactly what the window shows now, zoom included). A pending selection is always visible as a red overlay. `region` {x0,y0,x1,y1} in map units first zooms the window onto that rectangle (it stays there: call map_camera with scale 1 to see the whole map again; its reply states the scale really applied, which may be higher if the window cannot show the whole map at 1).",
+        "Screenshot of what the browser window currently shows, plus a legend (state ids/names/colours) and the camera. Options draw temporary annotations for this screenshot only: grid = coordinate graticule labelled in map units; state_ids = id badge on each state; cell_ids = cell ids (only when few cells are visible: zoom in first). whole_map=true first frames the whole map (otherwise the shot shows exactly what the window shows now, zoom included). A pending selection is always visible as a red overlay. Optional supersample 1..4 and filter lanczos3/stepdown/fast improve the reduced preview while keeping the same viewport dimensions; source images are capped by export.maxSourcePixels. `region` {x0,y0,x1,y1} in map units first zooms the window onto that rectangle (it stays there: call map_camera with scale 1 to see the whole map again; its reply states the scale really applied, which may be higher if the window cannot show the whole map at 1).",
       inputSchema: {
+        inset: insetSchema.optional().describe("Non-destructive regional atlas: whole map plus a framed, titled loupe; no camera change. Cannot combine with camera framing, overlays, text_map or filters."),
         grid: z.boolean().optional(),
         state_ids: z.boolean().optional(),
         cell_ids: z.boolean().optional(),
@@ -86,10 +104,34 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
         cols: z.number().int().optional().describe("Width of the character map"),
         rows: z.number().int().optional().describe("Height of the character map"),
         format: z.enum(["png", "jpeg"]).optional(),
+        supersample: z.number().int().min(1).max(4).optional(),
+        filter: z.enum(["lanczos3", "stepdown", "fast"]).optional(),
         max_image_bytes: z.number().int().min(cfg.limits.imageBytesMin).max(cfg.limits.imageBytesMax).optional()
       }
     },
-    guarded(async ({ grid, state_ids, cell_ids, region, whole_map, text_map, cols, rows, format, max_image_bytes }) => {
+    guarded(async ({ inset, grid, state_ids, cell_ids, region, whole_map, text_map, cols, rows, format, supersample, filter, max_image_bytes }) => {
+      if (inset) {
+        if ((text_map ?? cfg.view.textOnly) || grid || state_ids || cell_ids || region || whole_map || supersample !== undefined || filter !== undefined)
+          throw new Error("map_view: inset cannot combine with text_map, overlays, camera framing or supersample/filter");
+        const size = session.viewportSize();
+        const pic = await captureInset(session, inset, size.width, size.height, format ?? cfg.view.format);
+        let image: Content = { type: "image", data: pic.data, mimeType: pic.mimeType };
+        const budget = max_image_bytes ?? cfg.view.maxImageBytes;
+        if (pic.bytes.length > budget) {
+          // A JPEG of the same size can still be too heavy: halve the picture until it fits (or the steps run out).
+          let [width, height] = [size.width, size.height];
+          let small = pic.data;
+          for (let step = 0; step < INSET_SHRINK_STEPS; step += 1) {
+            small = (await session.call<{ base64: string }>("downsampleImage", { base64: pic.data, width, height, mimeType: "image/jpeg", filter: "fast", quality: cfg.view.jpegQuality / 100 })).base64;
+            if (Buffer.byteLength(small, "base64") <= budget) break;
+            [width, height] = [Math.max(1, Math.round(width / 2)), Math.max(1, Math.round(height / 2))];
+          }
+          image = { type: "image", data: small, mimeType: "image/jpeg" };
+        }
+        return { content: [image, text({ inset: { bounds: pic.bounds, cartouche: pic.cartouche, regionRatio: pic.regionRatio }, camera: await session.call("camera") })] };
+      }
+      if ((text_map ?? cfg.view.textOnly) && (supersample !== undefined || filter !== undefined))
+        throw new Error("map_view: supersample/filter only apply to picture views");
       if (whole_map && !region) await session.call("setCamera", { scale: 1, duration: 0 });
       if (region) await session.call("showRegion", region);
       const wantsNotes = Boolean(grid || state_ids || cell_ids);
@@ -101,7 +143,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
         }
         await settle();
         const asText = text_map ?? cfg.view.textOnly;
-        image = asText ? text(await session.call("textMap", { cols, rows })) : await screenshotContent({ format, maxBytes: max_image_bytes });
+        image = asText ? text(await session.call("textMap", { cols, rows })) : await screenshotContent({ format, maxBytes: max_image_bytes, supersample, filter });
       } finally {
         if (wantsNotes) await session.call("clearAnnotations").catch(() => undefined);
       }
@@ -116,7 +158,8 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
 
   server.registerTool(
     "map_status",
-    { title: "Diagnostics", description: "Health check: local address, page errors, and any outside-network request that was blocked (the map must run 100 % offline). Does not open the browser: browserOpen tells whether it is open (any map tool opens it).", inputSchema: {} },
+    {
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, title: "Diagnostics", description: "Health check: local address, page errors, and any outside-network request that was blocked (the map must run 100 % offline). Does not open the browser: browserOpen tells whether it is open (any map tool opens it).", inputSchema: {} },
     guarded(async () => {
       if (!session.isOpen())
         return { content: [text({ browserOpen: false, localUrl: session.baseUrl, startupWarnings: session.startupWarnings, history: history.state(), note: "The browser opens at the first map tool (map_summary, map_view...)." })] };
@@ -126,13 +169,15 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
 
   server.registerTool(
     "map_summary",
-    { title: "Map overview", description: "Seed, size, counts, and every state (id, name, cells, area, burgs, capital, pole position, neighbours) with fresh figures.", inputSchema: {} },
+    {
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, title: "Map overview", description: "Seed, size, counts, and every state (id, name, cells, area, burgs, capital, pole position, neighbours) with fresh figures.", inputSchema: {} },
     guarded(async () => ({ content: [text(await session.call("summary"))] }))
   );
 
   server.registerTool(
     "map_locate",
     {
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       title: "What is at this point?",
       description: "Full facts about one cell: state, province, culture, religion, biome, height, burg, neighbours. Give screenshot pixel (px,py), map point (x,y), or a cell id.",
       inputSchema: { px: z.number().optional(), py: z.number().optional(), x: z.number().optional(), y: z.number().optional(), cell: z.number().int().optional() }
@@ -143,9 +188,10 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   server.registerTool(
     "map_list",
     {
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       title: "List entities",
       description:
-        "List entities: states, provinces, cultures, religions, burgs (cities), markers, markerTypes (the types addMarker accepts), routes, rivers, labels (what stands where on the map, with the shift moveLabel applied). `name` keeps only entries whose name contains that text (case-insensitive): the way to find a city or state by name. Provinces and burgs can be filtered by state. Spatial filters: `rect` {x0, y0, x1, y1} restricts to a box; `near` {burg: id} or {river: id} or {x, y} sorts by distance; `within` limits distance; `direction` (N, NE, E, SE, S, SW, W, NW) keeps only entities on that compass side. Long lists are cut at `limit` (default 50); `total` is the real count.",
+        "List entities: states, provinces, cultures, religions, burgs (cities, with their architecture and population in inhabitants), markers, markerTypes (the types addMarker accepts), routes, rivers, styles (the current visual preset and every style value setStyle can change), zones (zone id, type, fill, cell count), notes (entity key, type and sanitized HTML), military (composite id, regimentId, stateId, units), diplomacy (relations by state and chronicle), labels (what stands where on the map, with the shift moveLabel applied). `name` keeps only entries whose name contains that text (case-insensitive): the way to find a city or state by name. Provinces, burgs, zones, military and diplomacy can be filtered by state. Spatial filters: `rect` {x0, y0, x1, y1} restricts to a box; `near` {burg: id} or {river: id} or {x, y} sorts by distance; `within` limits distance; `direction` (N, NE, E, SE, S, SW, W, NW) keeps only entities on that compass side. Long lists are cut at `limit` (default 50); `total` is the real count.",
       inputSchema: {
         kind: z.string(),
         name: z.string().optional(),
@@ -168,6 +214,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   server.registerTool(
     "map_select",
     {
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       title: "Select cells",
       description:
         "Build a selection of cells (shown in red in the browser at once). Shapes: circle{x,y,radius}, rect{x0,y0,x1,y1}, polygon{points}, cells{cells}, state{state}, province{province}, border{from,to,depth} (depth layers of state `from` along its border with `to`), ring{state,depth} (layers just outside a state, whoever owns them: the way to extend a state, restrict it to one direction by intersecting with a rect), rim{state,depth} (layers just inside a state along its land border), flood{start,match,max_cells}. Then map_apply assignState. Options: land_only (default true), only_state, combine_op (add|subtract|intersect) with combine_with (earlier selection id). Returns the selection id, cell count, bounds and per-state counts. Call map_commands for the exact shape list.",
@@ -185,11 +232,17 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
 
   server.registerTool(
     "map_commands",
-    { title: "List edit commands", description: "The edit commands map_apply accepts, with parameters, plus the selection shapes and options. Call once before editing.", inputSchema: {} },
+    {
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, title: "List edit commands", description: "The edit commands map_apply accepts, with parameters, plus the selection shapes and options. Call once before editing.", inputSchema: {} },
     guarded(async () => ({ content: [text(await session.call("describe"))] }))
   );
 
   const runEdit = async (cmd: string, p: Record<string, unknown>, view?: boolean): Promise<ToolResult> => {
+    if (cmd === "createSubmap") {
+      await session.call("validateSubmap", p); // fail before touching the backup or history
+      mkdirSync(cfg.mapsDir, { recursive: true });
+      writeFileSync(join(cfg.mapsDir, "pre-submap.map"), await session.call<string>("exportMap"));
+    }
     await history.pushBefore(cmd);
     let result: { changed?: number };
     try {
@@ -206,7 +259,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     }
     if (result.changed === 0) history.dropLast();
     else await autosave();
-    const content: Content[] = [text({ result, history: history.state() })];
+    const content: Content[] = [text({ result, ...(cmd === "createSubmap" ? { backup: join(cfg.mapsDir, "pre-submap.map") } : {}), history: history.state() })];
     if (view) {
       await settle();
       content.unshift(await viewContent());
@@ -217,6 +270,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   server.registerTool(
     "map_apply",
     {
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       title: "Edit the map",
       description:
         "Run an edit command (see map_commands) on a selection or entity. The previous state is saved first (map_undo reverts it) and the new state is autosaved. Returns exact before/after figures, skipped cells (water, capitals...) and warnings. Set view=true to also get a screenshot.",
@@ -228,6 +282,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   server.registerTool(
     "map_legend",
     {
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       title: "Legend boxes",
       description:
         "Show or hide a legend box on the map: it explains the colours of a layer and is saved with the map (so it is in exports). layer: states, provinces (state = keep one state), cultures, religions, biomes, zones, heightmap (elevation bands), temperature, precipitation, population, routes, goods, markets, trade, or custom (items = \"#aa3355=Dry lands;#3355aa=Wet lands\"). Several boxes can be on at once; title names a box (default: the layer name) and is how it is hidden again (action hide, or hide_all). Placement: corner (top-left, top-right, bottom-left, bottom-right) or x/y = where the box's bottom-right corner sits in % of the map; columns (items per column) and opacity (background) apply to every box. Undoable with map_undo. view=true also returns a screenshot.",
@@ -254,6 +309,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   server.registerTool(
     "map_undo",
     {
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       title: "Undo / redo",
       description: "Revert the last map_apply (undo) or re-apply it (redo), or list what can be undone. Restores the exact saved map; the browser reloads it (about 2 s). Selections survive (their cells are found again by position); check with map_view before editing. On undo, an automatic rescue snapshot of the map right before reverting is saved to maps/rescue-before-undo.map so uncheckpointed human edits are never lost (reloaded via map_file load name=rescue-before-undo).",
       inputSchema: { action: z.enum(["undo", "redo", "list"]) }
@@ -273,6 +329,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   server.registerTool(
     "map_layers",
     {
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       title: "Show / hide map layers",
       description:
         "Layers are what the person sees: states, borders, provinces, cultures, religions, biomes, heightmap, relief, temperature, rivers, routes, burgIcons, labels, cells, grid... Call with no arguments to list active and available layers; pass show and/or hide (arrays of layer ids) to change them, or only (exactly these layers, all others hidden; [] hides everything). save_preset {name} remembers the layers now shown; preset {name} restores them (kept in maps/layer-presets.json). Built-in presets: topography, biomes, political (config layerPresets); a saved preset of the same name replaces a built-in. Edits to relief, cultures, religions or provinces are only visible when their layer is on.",
@@ -293,10 +350,14 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
       }
       if (preset) {
         const layers = presets[safeName(preset)];
-        if (!layers) throw new Error(`Unknown preset "${preset}". Saved: ${Object.keys(presets).join(", ") || "none"}`);
-        return { content: [text(await session.call("setLayers", { only: layers }))] };
+        if (layers) return { content: [text(await session.call("setLayers", { only: layers }))] };
+        // Also accept Azgaar's built-in visual presets (including cultural and physical).
+        return { content: [text(await session.call("setLayers", { preset }))] };
       }
-      if (!show?.length && !hide?.length && !only) return { content: [text({ ...(await session.call<object>("layers")), presets: Object.keys(presets) })] };
+      if (!show?.length && !hide?.length && !only) {
+        const current = await session.call<{ active: string[]; available: string[]; presets: string[] }>("layers");
+        return { content: [text({ ...current, presets: [...new Set([...Object.keys(presets), ...current.presets])] })] };
+      }
       return { content: [text(await session.call("setLayers", { show, hide, only }))] };
     })
   );
@@ -304,6 +365,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   server.registerTool(
     "map_camera",
     {
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       title: "Move the camera",
       description: "Zoom/pan the view (what the person sees). x,y = map units to centre on (default: map centre), scale 1 = whole map, higher = closer. The map clamps the scale to its own limits: the reply gives the scale really applied and a warning when it differs from the one asked. duration_ms animates the move.",
       inputSchema: { x: z.number().optional(), y: z.number().optional(), scale: z.number().min(cfg.limits.zoomMin).max(cfg.limits.zoomMax).optional(), duration_ms: z.number().int().min(0).max(cfg.limits.cameraMsMax).optional() }
@@ -319,6 +381,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
   server.registerTool(
     "map_file",
     {
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       title: "Save / load / new map",
       description:
         "save: write the current map to maps/<name>.map. load: replace the current map with maps/<name>.map (undoable; selections are dropped), or with the .map file at an absolute `path` anywhere on this computer (e.g. a notes vault). list: saved maps with path, size and modification date, newest first. new: generate a fresh random map (optionally with seed, width, height, and options = generation settings such as {states:{limit:12},template:\"archipelago\"}, see map_options); history is cleared and the current map is lost unless saved. The map is also autosaved after every edit and reloaded at start.",
@@ -326,7 +389,16 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     },
     guarded(async ({ action, name, path, seed, width, height, options }) => {
       mkdirSync(cfg.mapsDir, { recursive: true });
-      if (action === "list") return { content: [text({ maps: readdirSync(cfg.mapsDir).filter(f => f.endsWith(".map")).map(f => { const info = statSync(join(cfg.mapsDir, f)); return { name: f.replace(/\.map$/, ""), path: join(cfg.mapsDir, f), sizeBytes: info.size, modified: info.mtime.toISOString() }; }).sort((a, b) => b.modified.localeCompare(a.modified)) })] };
+      if (action === "list") {
+        const maps = readdirSync(cfg.mapsDir)
+          .filter(f => f.endsWith(".map"))
+          .map(f => {
+            const info = statSync(join(cfg.mapsDir, f));
+            return { name: f.replace(/\.map$/, ""), path: join(cfg.mapsDir, f), sizeBytes: info.size, modified: info.mtime.toISOString() };
+          })
+          .sort((a, b) => b.modified.localeCompare(a.modified));
+        return { content: [text({ maps })] };
+      }
       if (action === "new") {
         if (options) await session.call("setSettings", { section: "generation", values: options }); // validated by Azgaar; kept for the generation below
         await session.openNew({ seed, width, height });
@@ -344,7 +416,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
         writeFileSync(file, await session.call<string>("exportMap"));
         return { content: [text({ saved: file })] };
       }
-      const content = readFileSync(file, "utf8"); // fails here, before anything is touched, if the file is missing
+      const content = readMapFile(file, cfg.limits.mapFileBytesMax); // fails here, before anything is touched, if the file is missing, is not a plain .map file or is too big
       await history.pushBefore(`load ${name}`);
       try {
         await session.call("importMap", content);
@@ -361,6 +433,7 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
     server.registerTool(
       "map_eval",
       {
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
         title: "Run JavaScript in the page (advanced)",
         description: "Escape hatch: evaluates a JavaScript expression/function body in the map page and returns its JSON result. The previous state is saved first (undoable). Prefer map_apply.",
         inputSchema: { code: z.string() }
@@ -369,7 +442,8 @@ export function registerTools(server: McpServer, cfg: Config, session: MapSessio
         await history.pushBefore("map_eval");
         const page = await session.ensure();
         try {
-          const value = await page.evaluate(src => (window as any).eval?.(`(() => { ${src} })()`) ?? null, code);
+          // Explicit opt-in only: execute in the browser page, never in the Node server.
+          const value = await page.evaluate(src => window.eval(`(async () => { ${src} })()`), code);
           await autosave();
           return { content: [text({ result: value ?? null })] };
         } catch (err) {

@@ -2,6 +2,10 @@ import { applyPreset } from "@/components/layers-presets";
 import { LAYER_PRESETS } from "@/components/options/tabs/layers-tab";
 import { AgentError } from "./types";
 
+export const AGENT_LAYER_PRESETS: Record<string, string[]> = {
+  topographic: ["heightmap", "rivers", "relief", "routes", "burgIcons", "labels", "scaleBar"]
+};
+
 export interface LayerState {
   active: string[];
   available: string[];
@@ -12,7 +16,7 @@ export function listLayers(): LayerState {
   return {
     active: Layers.state.active,
     available: Layers.all.filter(layer => !layer.params.permanent).map(layer => layer.id),
-    presets: Object.keys(LAYER_PRESETS)
+    presets: [...Object.keys(LAYER_PRESETS), ...Object.keys(AGENT_LAYER_PRESETS)]
   };
 }
 
@@ -22,6 +26,12 @@ export function listLayers(): LayerState {
  */
 export function setLayers(change: { show?: string[]; hide?: string[]; only?: string[]; preset?: string }): LayerState {
   const { available } = listLayers();
+  const wanted = [...(change.show ?? []), ...(change.hide ?? []), ...(change.only ?? [])];
+  const unknown = wanted.filter(id => !available.includes(id));
+  if (unknown.length)
+    throw new AgentError(`Unknown layer(s): ${unknown.join(", ")}. Available: ${available.join(", ")}`);
+  if (change.preset !== undefined && Object.hasOwn(AGENT_LAYER_PRESETS, change.preset))
+    return setLayers({ ...change, preset: undefined, only: AGENT_LAYER_PRESETS[change.preset] });
   if (change.preset !== undefined) {
     if (!(change.preset in LAYER_PRESETS))
       throw new AgentError(
@@ -29,10 +39,6 @@ export function setLayers(change: { show?: string[]; hide?: string[]; only?: str
       );
     applyPreset(change.preset);
   }
-  const wanted = [...(change.show ?? []), ...(change.hide ?? []), ...(change.only ?? [])];
-  const unknown = wanted.filter(id => !available.includes(id));
-  if (unknown.length)
-    throw new AgentError(`Unknown layer(s): ${unknown.join(", ")}. Available: ${available.join(", ")}`);
   const known = (ids: string[]) => ids.filter((id): id is Parameters<typeof Layers.show>[number] => Layers.has(id));
   if (change.only) {
     const keep = new Set(change.only);

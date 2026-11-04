@@ -2,7 +2,9 @@
 // Every call returns plain JSON-serialisable data; failures throw AgentError with a message meant for the AI.
 import { describeCommands, runCommand } from "./commands";
 import { type AgentConfig, config, configure } from "./config";
+import { downsampleImage } from "./downsample";
 import { mapToScreen, screenToMap } from "./geometry";
+import { renderInset, renderRegionLoupe, resolveRegionBounds, validateInset } from "./inset";
 import { exportMap, importMap } from "./io";
 import { listLayers, setLayers } from "./layers";
 import { exportPicture, menuList, menuRun } from "./menu";
@@ -10,6 +12,7 @@ import { clearAnnotations, drawAnnotations, type OverlayOptions, showSelection }
 import { camera, cellInfo, list, locate, summary } from "./queries";
 import { createSelection, describeSelection, dropSelections, SELECT_OPTIONS, SHAPES } from "./selection";
 import { getSettings, releaseSettings, setSettings } from "./settings";
+import { validateSubmap } from "./submap";
 import { textMap } from "./textmap";
 import { AgentError, type CommandResult, type Params } from "./types";
 import { uiClick, uiCloseDialogs, uiGet, uiList, uiSet } from "./ui";
@@ -95,6 +98,12 @@ const FMG_AGENT = {
   menuList,
   menuRun,
   exportPicture,
+  renderInset,
+  renderRegionLoupe,
+  resolveRegionBounds,
+  validateInset,
+  validateSubmap,
+  downsampleImage,
   getSettings,
   setSettings,
   releaseSettings,

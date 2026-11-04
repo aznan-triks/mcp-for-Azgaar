@@ -1,8 +1,20 @@
 node_modules/
-upstream/
+dist/
+dist-electron/
+vendor/azgaar/node_modules/
+vendor/azgaar/dist*/
+/vendor/.azgaar-*/
 maps/
-.browser-profile*/
-.test-tmp/
+/plans/
+/.public-export/
+audits/
 .env
 *.local
+.browser-profile/
+.test-tmp/
+.browser-profile*/
 exports/
+.public-export/
+# Created by `npm run setup`: Azgaar itself, downloaded and built on the user's machine.
+/vendor/
+upstream/

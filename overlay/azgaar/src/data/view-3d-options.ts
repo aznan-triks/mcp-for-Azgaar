@@ -21,6 +21,7 @@ export type ThreeDOptions = {
   erosionRiverDepth: number;
   erosionOctaves: number;
   satellite: boolean;
+  clouds: boolean; // optional procedural cloud shell around the globe
 };
 
 export type TimeOfDayPreset = {
@@ -76,6 +77,7 @@ export const DEFAULT_THREE_D: ThreeDOptions = {
   extendedWater: false,
   labels3d: false,
   satellite: false,
+  clouds: false,
   wireframe: false,
   resolutionScale: 4096,
   subdivide: false,
