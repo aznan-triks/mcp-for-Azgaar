@@ -18,3 +18,4 @@ exports/
 # Created by `npm run setup`: Azgaar itself, downloaded and built on the user's machine.
 /vendor/
 upstream/
+KANBAN.md

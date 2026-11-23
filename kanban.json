@@ -1,0 +1,29 @@
+{
+  "colonnes": [
+    {
+      "titre": "❓ Décisions (auteur)",
+      "source": "DECISIONS.md",
+      "type": "decisions"
+    },
+    {
+      "titre": "🚧 État courant",
+      "source": "NEXT_SESSION.md",
+      "section": "^État"
+    },
+    {
+      "titre": "✅ Dernière session",
+      "source": "NEXT_SESSION.md",
+      "section": "^Dernière\\ session"
+    },
+    {
+      "titre": "🔎 Écarts (non vérifié)",
+      "source": "NEXT_SESSION.md",
+      "section": "^Écarts"
+    },
+    {
+      "titre": "🔬 Backlog",
+      "source": "NEXT_SESSION.md",
+      "section": "^Rappels"
+    }
+  ]
+}
